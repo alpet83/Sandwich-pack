@@ -1,13 +1,17 @@
-# /lib/js_block.py, updated 2025-07-15 09:35 EEST
+# /lib/js_block.py, updated 2025-07-15 15:43 EEST
 import re
+import logging
 from typing import Dict
 from lib.content_block import ContentBlock
 from lib.sandwich_pack import SandwichPack
 
 class ContentCodeJs(ContentBlock):
     supported_types = [".js"]
-    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str):
-        super().__init__(content_text, content_type, file_name, timestamp)
+
+    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
+        super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
+        self.tag = "jss"
+        logging.debug(f"Initialized ContentCodeJs with tag={self.tag}, file_name={file_name}")
 
     def parse_content(self) -> Dict:
         entities = []
@@ -18,8 +22,7 @@ class ContentCodeJs(ContentBlock):
             entities.append({"type": "function", "name": match.group(1), "visibility": "public", "tokens": self._estimate_tokens(full_text)})
         import_pattern = re.compile(r"import\s+{?([\w,\s]+)}?\s+from\s+['\"]([^'\"]+)['\"]|require\s*\(['\"]([^'\"]+)['\"]\)", re.MULTILINE)
         for match in import_pattern.finditer(self.content_text):
-            items = [match.group(1)] if match.group(1) else []
-            items = [item.strip() for item in items[0].split(",")] if items else []
+            items = [item.strip() for item in match.group(1).split(",")] if match.group(1) else []
             module = match.group(2) or match.group(3)
             for item in items:
                 dependencies["imports"].append(item)

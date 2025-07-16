@@ -1,15 +1,17 @@
-# /lib/python_block.py, updated 2025-07-15 09:35 EEST
+# /lib/python_block.py, updated 2025-07-15 15:43 EEST
 import re
+import logging
 from typing import Dict
 from lib.content_block import ContentBlock
 from lib.sandwich_pack import SandwichPack
 
-
 class ContentCodePython(ContentBlock):
     supported_types = [".py"]
 
-    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str):
-        super().__init__(content_text, content_type, file_name, timestamp)
+    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
+        super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
+        self.tag = "python"
+        logging.debug(f"Initialized ContentCodePython with tag={self.tag}, file_name={file_name}")
 
     def parse_content(self) -> Dict:
         entities = []
