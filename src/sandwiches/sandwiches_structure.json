@@ -1,0 +1,211 @@
+{
+  "templates": {
+    "entities": "vis(pub/prv),type,name,tokens"
+  },
+  "dep_format": "modules: details[:file_id] (str); imports: index (int) or details[:file_id] (str); calls: index (int)",
+  "entities": [
+    "prv,function,get_file_mod_time,9",
+    "prv,function,is_hidden_file,8",
+    "prv,function,collect_files,8",
+    "prv,function,main,4",
+    "prv,function,__init__,8",
+    "prv,function,estimate_tokens,8",
+    "prv,function,parse_content,8",
+    "prv,function,to_sandwich_block,9",
+    "prv,class,ContentBlock,11",
+    "prv,function,__init__,8",
+    "prv,function,parse_content,10",
+    "prv,class,DocumentBlock,32",
+    "prv,function,__init__,8",
+    "prv,function,parse_content,10",
+    "prv,function,_extract_full_entity,9",
+    "prv,function,_estimate_tokens,9",
+    "prv,class,ContentCodeJs,25",
+    "prv,function,__init__,8",
+    "prv,function,parse_content,10",
+    "prv,function,_extract_full_entity,9",
+    "prv,function,_estimate_tokens,9",
+    "prv,class,ContentCodePython,26",
+    "prv,function,__init__,8",
+    "prv,function,parse_content,10",
+    "prv,function,_extract_full_entity,9",
+    "prv,function,_estimate_tokens,9",
+    "prv,class,ContentCodeRust,26",
+    "prv,function,compute_md5,6",
+    "prv,function,estimate_tokens,7",
+    "prv,function,__init__,8",
+    "pub,function,register_block_class,17",
+    "pub,function,load_block_classes,13",
+    "pub,function,supported_type,13",
+    "pub,function,create_block,13",
+    "prv,function,generate_unique_file_id,12",
+    "prv,function,pack,5",
+    "prv,class,SandwichPack,20",
+    "prv,function,__init__,8",
+    "prv,function,parse_content,10",
+    "prv,function,_extract_full_entity,9",
+    "prv,function,_estimate_tokens,9",
+    "prv,class,ContentCodeVue,26"
+  ],
+  "sandwiches": [
+    {
+      "file": "sandwich_1.txt",
+      "blocks": [
+        {
+          "start_line": 1,
+          "file_id": 0,
+          "imports": [
+            "Path\nfrom lib"
+          ],
+          "modules": [
+            "pathlib"
+          ],
+          "entities": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "start_line": 112,
+          "file_id": 1,
+          "imports": [
+            "Optional\n\n\nclass ContentBlock"
+          ],
+          "modules": [
+            "typing"
+          ],
+          "entities": [
+            4,
+            5,
+            6,
+            7,
+            8
+          ]
+        },
+        {
+          "start_line": 167,
+          "file_id": 2,
+          "imports": [
+            "Dict\nfrom lib",
+            "SandwichPack\n\nlogging"
+          ],
+          "modules": [
+            "lib.sandwich_pack",
+            "typing"
+          ],
+          "entities": [
+            9,
+            10,
+            11
+          ]
+        },
+        {
+          "start_line": 201,
+          "file_id": 3,
+          "imports": [
+            "Dict\nfrom lib",
+            "SandwichPack\n\nclass ContentCodeJs"
+          ],
+          "modules": [
+            "lib.sandwich_pack",
+            "typing"
+          ],
+          "entities": [
+            12,
+            13,
+            14,
+            15,
+            16
+          ]
+        },
+        {
+          "start_line": 250,
+          "file_id": 4,
+          "imports": [
+            "Dict\nfrom lib",
+            "SandwichPack\n\nclass ContentCodePython"
+          ],
+          "modules": [
+            "lib.sandwich_pack",
+            "typing"
+          ],
+          "entities": [
+            17,
+            18,
+            19,
+            20,
+            21
+          ]
+        },
+        {
+          "start_line": 314,
+          "file_id": 5,
+          "imports": [
+            "Dict\nfrom lib",
+            "SandwichPack\n\nclass ContentCodeRust"
+          ],
+          "modules": [
+            "lib.sandwich_pack",
+            "typing"
+          ],
+          "entities": [
+            22,
+            23,
+            24,
+            25,
+            26
+          ]
+        },
+        {
+          "start_line": 385,
+          "file_id": 6,
+          "imports": [
+            "Dict",
+            "Optional\nfrom",
+            "Path\nfrom typing import List"
+          ],
+          "modules": [
+            "pathlib"
+          ],
+          "entities": [
+            27,
+            28,
+            29,
+            30,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36
+          ]
+        },
+        {
+          "start_line": 604,
+          "file_id": 7,
+          "imports": [
+            "Dict\nfrom lib",
+            "SandwichPack\n\nclass ContentCodeVue"
+          ],
+          "modules": [
+            "lib.sandwich_pack",
+            "typing"
+          ],
+          "entities": [
+            37,
+            38,
+            39,
+            40,
+            41
+          ]
+        },
+        {
+          "start_line": 650,
+          "file_id": 8
+        }
+      ]
+    }
+  ]
+}

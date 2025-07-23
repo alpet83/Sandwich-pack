@@ -2,24 +2,44 @@
 import hashlib
 import importlib.util
 import os
+import re
 import logging
 import datetime
 import json
+import math
 import traceback
 from pathlib import Path
 from typing import List, Dict, Optional
 from .content_block import ContentBlock
 
+
 def compute_md5(content: str) -> str:
     return hashlib.md5(content.encode("utf-8")).hexdigest()
 
+
 def estimate_tokens(content: str) -> int:
-    return len(content) // 4
+    """Estimates tokens by counting words and spaces more accurately."""
+    if not content:
+        return 0
+    # Split content into words and spaces/newlines
+    tokens = 0
+    words = re.findall(r'\S+', content)
+    for word in words:
+        if len(word) >= 5:
+            tokens += math.ceil(len(word) / 4)
+        else:
+            tokens += 1
+    # Count spaces and newlines as single tokens
+    spaces = len(re.findall(r'\s+', content))
+    tokens += spaces
+    logging.debug("Estimated tokens for content (length=%d): %d tokens (words=%d, spaces=%d)", len(content), tokens, len(words), spaces)
+    return tokens
 
 class SandwichPack:
     _block_classes = []
 
-    def __init__(self, max_size: int = 80_000, system_prompt: Optional[str] = None):
+    def __init__(self, project_name: str, max_size: int = 80_000, system_prompt: Optional[str] = None):
+        self.project_name = project_name
         self.max_size = max_size
         self.system_prompt = system_prompt
         self.datasheet = {
@@ -68,6 +88,7 @@ class SandwichPack:
         logging.debug(f"Creating default ContentBlock for content_type={content_type}")
         return ContentBlock(content_text, content_type, file_name, timestamp, **kwargs)
 
+
     def generate_unique_file_id(self) -> int:
         file_id = 0
         while file_id in self.busy_ids:
@@ -75,6 +96,7 @@ class SandwichPack:
         self.busy_ids.add(file_id)
         logging.debug(f"Generated unique file_id={file_id}")
         return file_id
+
 
     def pack(self, blocks: List[ContentBlock], users: List[Dict] = None) -> Dict[str, any]:
         try:
@@ -85,20 +107,16 @@ class SandwichPack:
             entities_list = []
             name_to_locations = {}
 
-            # Собираем занятые file_id
             for block in blocks:
                 if block.content_type != ":post" and block.file_id is not None:
                     self.busy_ids.add(block.file_id)
-                    logging.debug(f"Added to busy_ids: file_id={block.file_id}, file_name={block.file_name}")
 
             for block in blocks:
                 if block.content_type != ":post" and block.file_name:
                     file_id = block.file_id if block.file_id is not None else self.generate_unique_file_id()
                     file_map[block.file_name] = file_id
                     file_list.append(f"{file_id},{block.file_name},{compute_md5(block.to_sandwich_block())},{block.tokens},{block.timestamp}")
-                    logging.debug(f"Added to file_list: file_id={file_id}, file_name={block.file_name}")
                 parsed = block.parse_content()
-                logging.debug(f"Parsed block: content_type={block.content_type}, file_name={block.file_name}, entities={parsed['entities']}")
                 if block.file_name and parsed["entities"]:
                     for ent in parsed["entities"]:
                         key = (block.file_name, ent["type"], ent["name"])
@@ -119,16 +137,23 @@ class SandwichPack:
                 "context_date": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
                 "templates": {
                     "filelist": "file_id,file_name,md5,tokens,timestamp",
-                    "entities": "vis(pub/prv),type,name,tokens",
                     "users": "user_id,username,role"
                 },
-                "dep_format": "modules: details[:file_id] (str); imports: index (int) or details[:file_id] (str); calls: index (int)",
+                "project_name": self.project_name,
                 "datasheet": self.datasheet,
                 "files": file_list,
+                "users": users or []
+            }
+
+            deep_index = {
+                "templates": {
+                    "entities": "vis(pub/prv),type,name,tokens",
+                },
+                "dep_format": "modules: details[:file_id] (str); imports: index (int) or details[:file_id] (str); calls: index (int)",
                 "entities": entities_list,
-                "users": users or [],
                 "sandwiches": []
             }
+
 
             current_line = 1
             for block in blocks:
@@ -140,7 +165,7 @@ class SandwichPack:
 
                 if current_size + block_size > self.max_size or current_tokens + block_tokens > 20_000:
                     sandwiches.append("".join(current_content))
-                    global_index["sandwiches"].append({
+                    deep_index["sandwiches"].append({
                         "file": f"sandwich_{current_file_index}.txt",
                         "blocks": current_index
                     })
@@ -156,10 +181,8 @@ class SandwichPack:
                 }
                 if block.content_type == ":post":
                     block_data["post_id"] = block.post_id
-                    logging.debug(f"Block data for post: post_id={block.post_id}, type={type(block.post_id)}")
                 else:
                     block_data["file_id"] = block.file_id if block.file_id is not None else file_map.get(block.file_name)
-                    logging.debug(f"Block data for file: file_id={block_data['file_id']}, file_name={block.file_name}, type={type(block_data['file_id'])}")
                 deps = parsed["dependencies"]
                 if deps["imports"]:
                     block_data["imports"] = deps["imports"]
@@ -170,7 +193,6 @@ class SandwichPack:
                 if block.file_name and parsed["entities"]:
                     ent_uids = [entity_map[(block.file_name, e["type"], e["name"])] for e in parsed["entities"]]
                     block_data["entities"] = sorted(ent_uids)
-                logging.debug(f"Appending block_data: {block_data}, entities={parsed['entities']}")
                 current_content.append(block_str + "\n")
                 current_index.append(block_data)
                 current_size += block_size
@@ -179,13 +201,16 @@ class SandwichPack:
 
             if current_content:
                 sandwiches.append("".join(current_content))
-                global_index["sandwiches"].append({
+                deep_index["sandwiches"].append({
                     "file": f"sandwich_{current_file_index}.txt",
                     "blocks": current_index
                 })
 
-            return {"index": json.dumps(global_index, indent=2), "sandwiches": sandwiches}
+            return {"index": json.dumps(global_index, indent=2),
+                    "deep_index": json.dumps(deep_index, indent=2),
+                    "sandwiches": sandwiches}
         except Exception as e:
             logging.error(f"#ERROR: Failed to pack blocks: {str(e)}")
             traceback.print_exc()
             raise
+

@@ -2,6 +2,7 @@
 import os
 import datetime
 import logging
+import argparse
 from pathlib import Path
 from lib.sandwich_pack import SandwichPack
 
@@ -79,7 +80,14 @@ def main():
         logging.error("No files collected, exiting")
         raise SystemExit("Error: No files found in the specified directory")
     logging.info(f"Collected {len(files_content)} files")
-    packer = SandwichPack(max_size=80_000)
+    parser = argparse.ArgumentParser(
+        prog='Sandwich Packer',
+        description='Combining all project sources files into sandwich structured several text files',
+        epilog='Best for using with chatbots like Grok or ChatGPT')
+
+    parser.add_argument('project_name')
+    args = parser.parse_args()
+    packer = SandwichPack(args.project_name, max_size=80_000)
     result = packer.pack(files_content)
     os.makedirs(output_dir, exist_ok=True)
     for i, sandwich in enumerate(result["sandwiches"], 1):
@@ -90,6 +98,10 @@ def main():
     global_index_file = Path(output_dir) / "sandwiches_index.json"
     with open(global_index_file, "w", encoding="utf-8") as f:
         f.write(result["index"])
+    global_index_file = Path(output_dir) / "sandwiches_structure.json"
+    with open(global_index_file, "w", encoding="utf-8") as f:
+        f.write(result["deep_index"])
+
     logging.info(f"Created {global_index_file}")
 
 if __name__ == "__main__":

@@ -1,0 +1,30 @@
+{
+  "packer_version": "0.3.0",
+  "context_date": "2025-07-21 16:25:07Z",
+  "templates": {
+    "filelist": "file_id,file_name,md5,tokens,timestamp",
+    "users": "user_id,username,role"
+  },
+  "project_name": "sandwich_pack",
+  "datasheet": {
+    "project_root": "/app",
+    "backend_address": "http://localhost:8080",
+    "frontend_address": "http://vps.vpn:8008",
+    "resources": {
+      "database": "sqlite:///app/data/multichat.db",
+      "log_file": "/app/logs/colloquium_core.log"
+    }
+  },
+  "files": [
+    "0,/spack.py,cc473ccf6a79e31fbd1988f127f35be5,1204,2025-07-21 15:41:30Z",
+    "1,/lib/content_block.py,09c0cacad6a77cc9b511f43bc28896ec,511,2025-07-15 13:47:39Z",
+    "2,/lib/document_block.py,8f4f7acb5363749140c04c8fe9440497,283,2025-07-15 12:56:33Z",
+    "3,/lib/js_block.py,a6c20bd88cb0ff38fd55dd629116d295,591,2025-07-15 13:00:12Z",
+    "4,/lib/python_block.py,e99db679c079c3584dcdecb939f448be,816,2025-07-15 13:00:05Z",
+    "5,/lib/rust_block.py,d48b554ca8b1032687eb89ac51c8fac6,964,2025-07-15 12:59:54Z",
+    "6,/lib/sandwich_pack.py,4695ba32e50ea82a4d3e7e8980b2e73d,2268,2025-07-21 16:25:00Z",
+    "7,/lib/vue_block.py,5e74afb524b1ddfc379df56a29a70c0f,528,2025-07-15 13:00:22Z",
+    "8,/lib/__init__.py,44241772c5fcf0d5226658082351359c,12,2025-07-15 06:32:56Z"
+  ],
+  "users": []
+}
