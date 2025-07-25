@@ -1,4 +1,4 @@
-# /lib/python_block.py, updated 2025-07-15 15:43 EEST
+# /lib/python_block.py, updated 2025-07-24 15:53 EEST
 import re
 import logging
 from typing import Dict
@@ -16,16 +16,55 @@ class ContentCodePython(ContentBlock):
     def parse_content(self) -> Dict:
         entities = []
         dependencies = {"modules": [], "imports": [], "calls": []}
-        fn_pattern = re.compile(r"(?P<vis>@classmethod\s+|@staticmethod\s+)?def\s+(?P<name>\w+)\s*\(", re.DOTALL | re.MULTILINE)
-        for match in fn_pattern.finditer(self.content_text):
-            full_text = self._extract_full_entity(match.start(), match.end())
-            vis = "public" if match.group('vis') else "private"
-            entities.append({"type": "function", "name": match.group('name'), "visibility": vis, "tokens": self._estimate_tokens(full_text)})
-        class_pattern = re.compile(r"(?P<vis>@classmethod\s+|@staticmethod\s+)?class\s+(?P<name>\w+)\s*(?:\([^)]*\))?\s*:", re.DOTALL | re.MULTILINE)
+        lines = self.content_text.splitlines()
+        class_context = None
+        class_indent = None
+
+        # Найти классы
+        class_pattern = re.compile(r"^(?P<indent>\s*)(?P<vis>@classmethod\s+|@staticmethod\s+)?class\s+(?P<name>\w+)\s*(?:\([^)]*\))?\s*:", re.MULTILINE)
         for match in class_pattern.finditer(self.content_text):
-            full_text = self._extract_full_entity(match.start(), match.end())
+            class_name = match.group('name')
             vis = "public" if match.group('vis') else "private"
-            entities.append({"type": "class", "name": match.group('name'), "visibility": vis, "tokens": self._estimate_tokens(full_text)})
+            start_line = self.content_text[:match.start()].count('\n') + 1
+            full_text = self._extract_full_entity(match.start(), match.end())
+            entities.append({
+                "type": "class",
+                "name": class_name,
+                "visibility": vis,
+                "file_id": self.file_id,
+                "line_num": start_line,
+                "tokens": self._estimate_tokens(full_text)
+            })
+            class_indent = len(match.group('indent'))
+            class_context = class_name
+
+        # Найти функции и методы
+        fn_pattern = re.compile(r"^(?P<indent>\s*)(?P<vis>@classmethod\s+|@staticmethod\s+)?def\s+(?P<name>\w+)\s*\(", re.MULTILINE)
+        for match in fn_pattern.finditer(self.content_text):
+            indent = len(match.group('indent'))
+            fn_name = match.group('name')
+            vis = "public" if match.group('vis') else "private"
+            start_line = self.content_text[:match.start()].count('\n') + 1
+            full_text = self._extract_full_entity(match.start(), match.end())
+            ent_type = "method" if class_context and indent > class_indent else "function"
+            name = f"{class_context}::{fn_name}" if ent_type == "method" else fn_name
+            entities.append({
+                "type": ent_type,
+                "name": name,
+                "visibility": vis,
+                "file_id": self.file_id,
+                "line_num": start_line,
+                "tokens": self._estimate_tokens(full_text)
+            })
+
+        # Проверить завершение класса
+        for i, line in enumerate(lines):
+            if class_context and line.strip() and not line.strip().startswith('#'):
+                indent = len(line) - len(line.lstrip())
+                if indent <= class_indent:
+                    class_context = None
+                    class_indent = None
+
         import_pattern = re.compile(r"from\s+([\w.]+)\s+import\s+([\w,\s]+)", re.MULTILINE)
         for match in import_pattern.finditer(self.content_text):
             items = [item.strip() for item in match.group(2).split(",")]
