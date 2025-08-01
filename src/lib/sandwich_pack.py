@@ -1,4 +1,6 @@
-# /lib/sandwich_pack.py, updated 2025-07-24 15:53 EEST
+# /lib/sandwich_pack.py, updated 2025-08-01 12:51 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
 import hashlib
 import importlib.util
 import os
@@ -10,29 +12,10 @@ import math
 import traceback
 from pathlib import Path
 from typing import List, Dict, Optional
-from .content_block import ContentBlock
+from .content_block import ContentBlock, estimate_tokens
 
 def compute_md5(content: str) -> str:
     return hashlib.md5(content.encode("utf-8")).hexdigest()
-
-def estimate_tokens(content: str) -> int:
-    """Estimates tokens by counting words and spaces more accurately."""
-    if not content:
-        return 0
-    # Split content into words and spaces/newlines
-    tokens = 0
-    words = re.findall(r'\S+', content)
-    for word in words:
-        if len(word) >= 5:
-            tokens += math.ceil(len(word) / 4)
-        else:
-            tokens += 1
-    # Count spaces and newlines as single tokens
-    spaces = len(re.findall(r'\s+', content))
-    tokens += spaces
-    logging.debug("Estimated tokens for content (length=%d): %d tokens (words=%d, spaces=%d)",
-                  len(content), tokens, len(words), spaces)
-    return tokens
 
 class SandwichPack:
     _block_classes = []
@@ -68,6 +51,8 @@ class SandwichPack:
                 logging.debug(f"Loaded module: {module_name}")
             except Exception as e:
                 logging.error(f"Failed to load module {module_name}: {str(e)}")
+                stack = traceback.format_exception(type(e), e, e.__traceback__)
+                logging.info(f"TRACEBACK: " + ''.join(stack))
         return SandwichPack._block_classes
 
     @classmethod
@@ -98,6 +83,15 @@ class SandwichPack:
         return file_id
 
     def pack(self, blocks: List[ContentBlock], users: List[Dict] = None) -> Dict[str, any]:
+        """Packs content blocks into sandwiches with an index including entity boundaries.
+
+        Args:
+            blocks (List[ContentBlock]): List of content blocks to pack.
+            users (List[Dict], optional): List of user metadata. Defaults to None.
+
+        Returns:
+            Dict[str, any]: Dictionary containing global index, deep index, and sandwiches.
+        """
         try:
             self.busy_ids.clear()
             file_map = {}
@@ -114,18 +108,31 @@ class SandwichPack:
                 if block.content_type != ":post" and block.file_name:
                     file_id = block.file_id if block.file_id is not None else self.generate_unique_file_id()
                     file_map[block.file_name] = file_id
-                    file_list.append(f"{file_id},{block.file_name},{compute_md5(block.to_sandwich_block())},"
-                                    f"{block.tokens},{block.timestamp}")
+                    file_list.append(
+                        f"{file_id},{block.file_name},{compute_md5(block.to_sandwich_block())},"
+                        f"{block.tokens},{block.timestamp}"
+                    )
+                block.strip_strings()
+                block.strip_comments()
                 parsed = block.parse_content()
                 if block.file_name and parsed["entities"]:
                     for ent in parsed["entities"]:
+                        if "first_line" not in ent or "last_line" not in ent:
+                            logging.warning(
+                                f"Entity {ent['name']} in file {block.file_name} missing first_line or last_line"
+                            )
+                            continue
                         key = (block.file_name, ent["type"], ent["name"])
                         if key not in entity_map:
                             entity_map[key] = len(entities_list)
                             vis_short = "pub" if ent["visibility"] == "public" else "prv"
-                            file_id = block.file_id  # ent.get("file_id", file_map.get(block.file_name))
-                            entities_list.append(f"{vis_short},{ent['type']},{ent['name']},"
-                                                 f"{file_id},{ent['line_num']},{ent['tokens']}")
+                            file_id = block.file_id or file_map.get(block.file_name)
+                            start_line = ent["first_line"]
+                            end_line = ent["last_line"]
+                            entities_list.append(
+                                f"{vis_short},{ent['type']},{ent['name']},"
+                                f"{file_id},{start_line}-{end_line},{ent['tokens']}"
+                            )
                             name_to_locations.setdefault(ent["name"], []).append((block.file_name, ent["type"]))
 
             current_size = 0
@@ -135,12 +142,12 @@ class SandwichPack:
             current_file_index = 1
             sandwiches = []
             global_index = {
-                "packer_version": "0.3.0",
+                "packer_version": "0.3.1",
                 "context_date": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
                 "templates": {
                     "filelist": "file_id,file_name,md5,tokens,timestamp",
                     "users": "user_id,username,role",
-                    "entities": "vis(pub/prv),type,name,file_id,line_num,tokens"
+                    "entities": "vis(pub/prv),type,name,file_id,start_line-end_line,tokens"
                 },
                 "project_name": self.project_name,
                 "datasheet": self.datasheet,
@@ -151,10 +158,13 @@ class SandwichPack:
 
             deep_index = {
                 "templates": {
-                    "entities": "vis(pub/prv),type,name,file_id,line_num,tokens",
+                    "entities": "vis(pub/prv),type,name,file_id,start_line-end_line,tokens"
                 },
-                "dep_format": "modules: details[:file_id] (str); imports: index (int) or details[:file_id] (str); "
-                              "calls: index (int)",
+                "dep_format": (
+                    "modules: details[:file_id] (str); "
+                    "imports: index (int) or details[:file_id] (str); "
+                    "calls: index (int)"
+                ),
                 "sandwiches": []
             }
 
@@ -188,9 +198,9 @@ class SandwichPack:
                     block_data["file_id"] = block.file_id if block.file_id is not None else file_map.get(block.file_name)
                 deps = parsed["dependencies"]
                 if deps["imports"]:
-                    block_data["imports"] = deps["imports"]
+                    block_data["imports"] = [re.sub(r'\n+', ' ', item).strip() for item in deps["imports"]]
                 if deps["modules"]:
-                    block_data["modules"] = deps["modules"]
+                    block_data["modules"] = [re.sub(r'\n+', ' ', item).strip() for item in deps["modules"]]
                 if deps["calls"]:
                     block_data["calls"] = deps["calls"]
                 if block.file_name and parsed["entities"]:
@@ -209,9 +219,11 @@ class SandwichPack:
                     "blocks": current_index
                 })
 
-            return {"index": json.dumps(global_index, indent=2),
-                    "deep_index": json.dumps(deep_index, indent=2),
-                    "sandwiches": sandwiches}
+            return {
+                "index": json.dumps(global_index, indent=2),
+                "deep_index": json.dumps(deep_index, indent=2),
+                "sandwiches": sandwiches
+            }
         except Exception as e:
             logging.error(f"#ERROR: Failed to pack blocks: {str(e)}")
             traceback.print_exc()

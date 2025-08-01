@@ -1,192 +1,309 @@
-# /lib/rust_block.py, updated 2025-07-24 20:16 EEST
+# /lib/rust_block.py, updated 2025-07-31 15:14 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
 import re
 import os
 import logging
-from typing import Dict
 from pathlib import Path
-from lib.content_block import ContentBlock
+from lib.content_block import ContentBlock, estimate_tokens
 from lib.sandwich_pack import SandwichPack
 
 class ContentCodeRust(ContentBlock):
     supported_types = [".rs"]
 
-    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
+    def __init__(self, content_text, content_type, file_name, timestamp, **kwargs):
         super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
         self.tag = "rustc"
-        logging.debug(f"Initialized ContentCodeRust with tag={self.tag}, file_name={file_name}")
+        self.entity_map = {}
+        self.raw_str_prefix = "r"
+        self.open_ml_string = ["r#\""]
+        self.close_ml_string = ["\"#"]
+        self.module_prefix = kwargs.get("module_prefix", "")  # Tracks current module prefix (e.g., "logger.")
+        logging.debug(f"Initialized ContentCodeRust with tag={self.tag}, file_name={file_name}, module_prefix={self.module_prefix}")
 
-    def parse_content(self) -> Dict:
-        entities = []
-        dependencies = {"modules": [], "imports": [], "calls": []}
-        lines = self.content_text.splitlines()
-        struct_context = None
-        struct_indent = None
-        trait_context = None
-        trait_indent = None
+    def check_lines_match(self, offset, full_clean_lines):
+        """Validates that clean_lines matches full_clean_lines at the given offset."""
+        if offset < 1 or offset >= len(self.clean_lines):
+            logging.error(f"Invalid offset {offset} for file {self.file_name}")
+            return False
+        for i, line in enumerate(self.clean_lines[offset:], offset):
+            if i >= len(full_clean_lines):
+                return False
+            if not isinstance(line, str) or not isinstance(full_clean_lines[i], str):
+                continue
+            if line.strip() and full_clean_lines[i].strip() and line != full_clean_lines[i]:
+                logging.warning(f"Line mismatch at {i}: expected '{full_clean_lines[i]}', got '{line}'")
+                return False
+        return True
 
-        # Найти структуры
-        struct_pattern = re.compile(r"^(?P<indent>\s*)(?P<vis>pub\s+)?struct\s+(?P<name>\w+)(<.*?>)?\s*{",
-                                   re.MULTILINE)
-        for match in struct_pattern.finditer(self.content_text):
-            struct_name = match.group('name')
-            vis = "public" if match.group('vis') else "private"
-            start_line = self.content_text[:match.start()].count('\n') + 1
-            full_text = self._extract_full_entity(match.start(), match.end())
-            entities.append({
-                "type": "struct",
-                "name": struct_name,
-                "visibility": vis,
-                "file_id": self.file_id,
-                "line_num": start_line,
-                "tokens": self._estimate_tokens(full_text)
-            })
-            struct_indent = len(match.group('indent'))
-            struct_context = struct_name
-
-        # Найти трейты
-        trait_pattern = re.compile(r"^(?P<indent>\s*)(?P<vis>pub\s+)?trait\s+(?P<name>\w+)(<.*?>)?\s*{",
-                                   re.MULTILINE)
-        for match in trait_pattern.finditer(self.content_text):
+    def _parse_traits(self, clean_content, content_offset):
+        """Parses Rust traits and their abstract methods."""
+        trait_pattern = re.compile(
+            r"^(?P<indent>[ \t]*)(?P<vis>pub\s+)?trait\s+(?P<name>\w+)(<.*?>)?\s*{",
+            re.MULTILINE
+        )
+        for match in trait_pattern.finditer(clean_content):
+            start_pos = match.start('name')
+            line_count = clean_content[:start_pos].count('\n')
+            start_line = content_offset + line_count
             trait_name = match.group('name')
             vis = "public" if match.group('vis') else "private"
-            start_line = self.content_text[:match.start()].count('\n') + 1
-            full_text = self._extract_full_entity(match.start(), match.end())
-            entities.append({
-                "type": "trait",
-                "name": trait_name,
+            full_text = self._extract_full_entity(match.start(), match.end(), clean_content)
+            entity = {
+                "type": "interface",
+                "name": f"{self.module_prefix}{trait_name}",
                 "visibility": vis,
                 "file_id": self.file_id,
-                "line_num": start_line,
-                "tokens": self._estimate_tokens(full_text)
-            })
+                "first_line": start_line,
+                "tokens": estimate_tokens(full_text)
+            }
+            self.add_entity(start_line, entity)
 
-        # Найти реализации трейтов
-        impl_pattern = re.compile(r"^(?P<indent>\s*)(?:#\[.*?\]\s*)?(?P<vis>pub\s+)?impl\s+(?P<trait_name>\w+)\s+"
-                                 r"for\s+(?P<struct_name>\w+)\s*{", re.MULTILINE)
-        for match in impl_pattern.finditer(self.content_text):
+            # Parse abstract methods within trait
+            trait_content = full_text
+            trait_offset = start_line
+            logging.debug(f"Trait content: '{trait_content[:100]}...', start_pos: {start_pos}")
+            fn_trait_pattern = re.compile(
+                r"^(?P<indent>[ \t]*)(?:#\[.*?\]\s*)?(?P<vis>pub\s+)?(?:async\s+)?fn\s+(?P<name>\w+)\s*\([\s\S]*?\)\s*(->\s*[\w\s:<,>\[\]]+\s*)?(?:;|\{)",
+                re.MULTILINE
+            )
+            for match_fn in fn_trait_pattern.finditer(trait_content):
+                start_pos_fn = match_fn.start('name')
+                line_count = trait_content[:start_pos_fn].count('\n')
+                method_line = trait_offset + line_count
+                name = match_fn.group('name')
+                vis = "public" if match_fn.group('vis') else "private"
+                full_text_method = match_fn.group(0)
+                ent_type = "abstract method" if full_text_method.endswith(';') else "method"
+                entity = {
+                    "type": ent_type,
+                    "name": f"{self.module_prefix}{trait_name}::{name}",
+                    "visibility": vis,
+                    "file_id": self.file_id,
+                    "first_line": method_line,
+                    "last_line": method_line,  # Abstract methods are single-line
+                    "tokens": estimate_tokens(full_text_method)
+                }
+                self.add_entity(method_line, entity)
+
+    def _parse_impl(self, clean_content, content_offset):
+        """Parses Rust trait implementations and their methods."""
+        impl_pattern = re.compile(
+            r"^(?P<indent>[ \t]*)(?:#\[.*?\]\s*)?(?P<vis>pub\s+)?impl\s+(?P<trait_name>\w+)\s+"
+            r"for\s+(?P<struct_name>\w+)\s*{",
+            re.MULTILINE
+        )
+        fn_pattern = re.compile(
+            r"^(?P<indent>[ \t]*)(?:#\[.*?\]\s*)?(?P<vis>pub\s+)?(?:async\s+)?fn\s+(?P<name>\w+)\s*\([\s\S]*?\)\s*(->\s*[\w\s:<,>\[\]]+\s*)?{",
+            re.MULTILINE
+        )
+        for match in impl_pattern.finditer(clean_content):
+            start_pos = match.start('trait_name')
+            line_count = clean_content[:start_pos].count('\n')
+            start_line = content_offset + line_count
             trait_name = match.group('trait_name')
             struct_name = match.group('struct_name')
             vis = "public" if match.group('vis') else "private"
-            start_line = self.content_text[:match.start()].count('\n') + 1
-            full_text = self._extract_full_entity(match.start(), match.end())
-            line_count = full_text.count('\n') + 1
-            entities.append({
-                "type": "trait",
-                "name": trait_name,
+            full_text = self._extract_full_entity(match.start(), match.end(), clean_content)
+            entity = {
+                "type": "class",
+                "name": f"{self.module_prefix}{trait_name}<{struct_name}>",
                 "visibility": vis,
                 "file_id": self.file_id,
-                "line_num": start_line,
-                "tokens": self._estimate_tokens(full_text)
-            })
-            trait_indent = len(match.group('indent'))
-            trait_context = trait_name
-            logging.debug(f"Parsed trait impl for {trait_name} on {struct_name} at line {start_line}")
-            logging.debug(f"Trait {trait_name} spans {line_count} lines")
+                "first_line": start_line,
+                "tokens": estimate_tokens(full_text)
+            }
+            self.add_entity(start_line, entity)
 
-            # Сохранить содержимое трейта в файл
-            log_dir = Path("/app/logs/rust_parse")
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = log_dir / f"{trait_name}.rs"
-            try:
-                with log_file.open("w", encoding="utf-8") as f:
-                    f.write(full_text)
-                logging.debug(f"Saved trait content to {log_file}")
-            except Exception as e:
-                logging.error(f"Failed to save trait {trait_name} to {log_file}: {str(e)}")
-
-            # Парсинг методов внутри impl
+            # Parse methods within impl
             impl_content = full_text
-            fn_pattern = re.compile(r"^(?P<indent>\s*)(?:#\[.*?\]\s*)?(?P<vis>pub\s+)?(?:async\s+)?fn\s+"
-                                   r"(?P<name>\w+)\s*\([\s\S]*?\)\s*(->\s*[\w\s:<,>\[\]]+\s*)?\s*{",
-                                   re.MULTILINE)
-            method_count = 0
-            method_names = []
-            for fn_match in fn_pattern.finditer(impl_content):
-                fn_name = fn_match.group('name')
-                vis = "public" if fn_match.group('vis') else "private"
-                fn_start_line = start_line + impl_content[:fn_match.start()].count('\n')
-                fn_full_text = self._extract_full_entity(fn_match.start(), fn_match.end(), impl_content)
-                entities.append({
+            impl_offset = start_line
+            for match_fn in fn_pattern.finditer(impl_content):
+                start_pos_fn = match_fn.start('name')
+                line_count = impl_content[:start_pos_fn].count('\n')
+                method_line = impl_offset + line_count
+                name = match_fn.group('name')
+                vis = "public" if match_fn.group('vis') else "private"
+                full_text_method = self._extract_full_entity(match_fn.start(), match_fn.end(), impl_content)
+                entity = {
                     "type": "method",
-                    "name": f"{trait_name}::{fn_name}",
+                    "name": f"{self.module_prefix}{trait_name}<{struct_name}>::{name}",
                     "visibility": vis,
                     "file_id": self.file_id,
-                    "line_num": fn_start_line,
-                    "tokens": self._estimate_tokens(fn_full_text)
-                })
-                method_count += 1
-                method_names.append(fn_name)
-                logging.debug(f"Parsed method {trait_name}::{fn_name} in trait impl at line {fn_start_line}")
-            logging.debug(f"Found {method_count} methods in trait {trait_name}: {', '.join(method_names)}")
+                    "first_line": method_line,
+                    "tokens": estimate_tokens(full_text_method)
+                }
+                self.add_entity(method_line, entity)
 
-        # Найти функции и методы вне impl
-        fn_pattern = re.compile(r"^(?P<indent>\s*)(?:#\[.*?\]\s*)?(?P<vis>pub\s+)?(?:async\s+)?fn\s+"
-                               r"(?P<name>\w+)\s*\([\s\S]*?\)\s*(->\s*[\w\s:<,>\[\]]+\s*)?\s*{",
-                               re.MULTILINE)
-        for match in fn_pattern.finditer(self.content_text):
-            indent = len(match.group('indent'))
-            fn_name = match.group('name')
+    def _parse_structures(self, clean_content, content_offset):
+        """Parses Rust structures."""
+        struct_pattern = re.compile(
+            r"^(?P<indent>[ \t]*)(?P<vis>pub\s+)?struct\s+(?P<name>\w+)(<.*?>)?\s*{",
+            re.MULTILINE
+        )
+        for match in struct_pattern.finditer(clean_content):
+            start_pos = match.start('name')
+            line_count = clean_content[:start_pos].count('\n')
+            start_line = content_offset + line_count
+            struct_name = match.group('name')
             vis = "public" if match.group('vis') else "private"
-            start_line = self.content_text[:match.start()].count('\n') + 1
-            full_text = self._extract_full_entity(match.start(), match.end())
-            # Пропустить методы, уже обработанные в impl
-            if any(e["line_num"] == start_line and e["type"] == "method" for e in entities):
-                continue
-            ent_type = "method" if struct_context and indent > struct_indent else "function"
-            name = f"{struct_context}::{fn_name}" if struct_context and ent_type == "method" else fn_name
-            entities.append({
-                "type": ent_type,
-                "name": name,
+            full_text = self._extract_full_entity(match.start(), match.end(), clean_content)
+            entity = {
+                "type": "struct",
+                "name": f"{self.module_prefix}{struct_name}",
                 "visibility": vis,
                 "file_id": self.file_id,
-                "line_num": start_line,
-                "tokens": self._estimate_tokens(full_text)
-            })
+                "first_line": start_line,
+                "tokens": estimate_tokens(full_text)
+            }
+            self.add_entity(start_line, entity)
 
-        # Проверить завершение структуры или трейта
-        for i, line in enumerate(lines):
-            if (struct_context or trait_context) and line.strip() and not line.strip().startswith('//'):
-                indent = len(line) - len(line.lstrip())
-                if struct_context and indent <= struct_indent:
-                    struct_context = None
-                    struct_indent = None
-                if trait_context and indent <= trait_indent:
-                    trait_context = None
-                    trait_indent = None
+    def _parse_modules(self, clean_content: str, content_offset: int, local_clean_lines: list, depth: int = 0):
+        """Parses Rust modules and their contents recursively."""
+        dependencies = {"modules": [], "imports": [], "calls": []}
+        module_pattern = re.compile(
+            r"^(?P<indent>[ \t]*)(?P<vis>pub\s+)?mod\s+(?P<name>\w+)\s*{",
+            re.MULTILINE
+        )
+        for match in module_pattern.finditer(clean_content):
+            start_pos = match.start('name')
+            line_count = clean_content[:start_pos].count('\n')
+            start_line = content_offset + line_count
+            module_name = match.group('name')
+            vis = "public" if match.group('vis') else "private"
+            full_text = self._extract_full_entity(match.start(), match.end(), clean_content)
+            entity = {
+                "type": "module",
+                "name": f"{self.module_prefix}{module_name}",
+                "visibility": vis,
+                "file_id": self.file_id,
+                "first_line": start_line,
+                "tokens": estimate_tokens(full_text)
+            }
+            self.add_entity(start_line, entity)
 
-        module_pattern = re.compile(r"pub\s+mod\s+(\w+);")
-        for match in module_pattern.finditer(self.content_text):
-            module_name = match.group(1)
-            module_path = f"{os.path.dirname(self.file_name)}/{module_name}/mod.rs".replace("\\", "/")
-            if not module_path.startswith("/"):
-                module_path = f"/{module_path}"
-            dependencies["modules"].append(module_name)
-        import_pattern = re.compile(r"use\s+crate::([\w:]+)(?:\{([\w,: ]+)\})?;")
-        for match in import_pattern.finditer(self.content_text):
-            path = match.group(1).replace("::", "/")
-            if match.group(2):
-                for item in match.group(2).split(","):
-                    dependencies["imports"].append(item.strip())
-            else:
-                dependencies["imports"].append(path.split("/")[-1])
-        call_pattern = re.compile(r"\b(\w+)\s*\(")
-        for match in call_pattern.finditer(self.content_text):
-            dependencies["calls"].append(match.group(1))
+            # Extract module content (excluding mod declaration and closing brace)
+            module_lines = full_text.splitlines()  # Skip first and last lines
+            module_size = len(module_lines)
+            # Create a copy of local_clean_lines and replace non-module lines with comments
+            sub_clean_lines = local_clean_lines.copy()
+            end_line = start_line + module_size
+
+            for i in range(0, len(sub_clean_lines)):
+                if i < start_line + 1 or i > end_line - 1:
+                    sub_clean_lines[i] = f"// ext. line #{i}"
+
+            masked_content = "\n".join(sub_clean_lines[1:])
+            sub_parser = ContentCodeRust(masked_content, self.content_type,
+                                         f"{self.file_name}&{module_name}", self.timestamp,
+                                         module_prefix=f"{self.module_prefix}{module_name}.")
+            sub_result = sub_parser.parse_content(sub_clean_lines, depth + 1)
+            logging.debug(f"Sub-parser entities: {sub_result['entities']}")
+            for i, sub_entity in enumerate(sub_result["entities"], 1):
+                first_line = sub_entity['first_line']
+                if first_line in self.entity_map:
+                    logging.error(f"Already exists entity {self.entity_map[first_line]}, can't add {sub_entity}")
+                    continue
+                self.entity_map[first_line] = sub_entity
+            dependencies["modules"].extend(sub_result["dependencies"]["modules"])
+            dependencies["imports"].extend(sub_result["dependencies"]["imports"])
+            dependencies["calls"].extend(sub_result["dependencies"]["calls"])
+        return dependencies
+
+    def _parse_functions(self, clean_content, content_offset):
+        """Parses Rust functions not belonging to traits or impls."""
+        fn_pattern = re.compile(
+            r"^(?P<indent>[ \t]*)(?P<vis>pub\s+)?(?:async\s+)?fn\s+(?P<name>\w+)\s*\([\s\S]*?\)\s*(->\s*[\w\s:<,>\[\]]+\s*)?{",
+            re.MULTILINE
+        )
+        for match in fn_pattern.finditer(clean_content):
+            start_pos = match.start('name')
+            line_count = clean_content[:start_pos].count('\n')
+            start_line = content_offset + line_count
+            name = match.group('name')
+            vis = "public" if match.group('vis') else "private"
+            full_text = self._extract_full_entity(match.start(), match.end(), clean_content)
+            name_final = f"{self.module_prefix}{name}"
+            # Skip if already processed as a trait or impl method
+            if any(name_final.startswith(f"{e['name']}::") for e in self.entity_map.values() if e["type"] in ["interface", "class"]):
+                logging.debug(f"Skipping {name_final} as it matches a trait or impl method")
+                continue
+            entity = {
+                "type": "function",
+                "name": name_final,
+                "visibility": vis,
+                "file_id": self.file_id,
+                "first_line": start_line,
+                "tokens": estimate_tokens(full_text)
+            }
+            self.add_entity(start_line, entity)
+
+    def parse_content(self, clean_lines=None, depth=0):
+        """Parses Rust content to extract entities and dependencies."""
+        logging.debug(f"Parsing content at depth {depth} for file {self.file_name}")
+        if depth >= 2:
+            self.parse_warn(f"Maximum recursion depth reached for file {self.file_name}")
+            return {"entities": [], "dependencies": {"modules": [], "imports": [], "calls": []}}
+        self.entity_map = {}
+        dependencies = {"modules": [], "imports": [], "calls": []}
+        clean_content = self.get_clean_content() if clean_lines is None else "\n".join(clean_lines[1:])
+        local_clean_lines = clean_lines if clean_lines is not None else self.clean_lines
+        content_offset = 1  # clean_content starts at line 1 in clean_lines
+
+        # Parse in order: modules -> traits -> impls -> structures -> functions
+        module_deps = self._parse_modules(clean_content, content_offset, local_clean_lines, depth)
+        # Clear module lines after adding entities
+        for entity in self.entity_map.values():
+            if entity["type"] == "module":
+                start_line, end_line = self.detect_bounds(entity["first_line"], local_clean_lines)
+                local_clean_lines[start_line:end_line + 1] = [""] * (end_line + 1 - start_line)
+
+        dependencies["modules"].extend(module_deps["modules"])
+        dependencies["imports"].extend(module_deps["imports"])
+        dependencies["calls"].extend(module_deps["calls"])
+        self._parse_traits(clean_content, content_offset)
+        self._parse_impl(clean_content, content_offset)
+        self._parse_structures(clean_content, content_offset)
+        self._parse_functions(clean_content, content_offset)
+
+        # Add entities in order of first_line
+        logging.debug(f"{self.module_prefix} Seen lines before global function search: {set(self.entity_map.keys())}")
+
+        # Sort entities
+        entities = self.sorted_entities()
+        logging.debug(f"Parsed {len(entities)} entities in {self.file_name}")
         return {"entities": entities, "dependencies": {k: sorted(list(set(v))) for k, v in dependencies.items()}}
 
-    def _extract_full_entity(self, start: int, end_header: int, content: str = None) -> str:
-        content = content or self.content_text
-        brace_count = 1
-        i = end_header
-        while i < len(content) and brace_count > 0:
-            if content[i] == '{':
-                brace_count += 1
-            elif content[i] == '}':
-                brace_count -= 1
-            i += 1
-        return content[start:i] if brace_count == 0 else content[start:end_header]
+    def count_chars(self, line_num, ch, clean_lines=None):
+        """Counts occurrences of a character in a specific line of clean code."""
+        clean_lines = clean_lines or self.clean_lines
+        if line_num < 1 or line_num >= len(clean_lines):
+            logging.error(f"Invalid line number {line_num} for file {self.file_name}")
+            return 0
+        line = clean_lines[line_num]
+        if not isinstance(line, str):
+            return 0
+        return line.count(ch)
 
-    def _estimate_tokens(self, content: str) -> int:
-        return len(content) // 4
+    def _extract_full_entity(self, start, end_header, content=None):
+        """Extracts the full entity text using clean_lines for brace counting."""
+        if len(self.clean_lines) <= 1:
+            raise Exception("clean_lines not filled")
+        content = content or self.get_clean_content()
+        start_pos = start
+        lines = content.splitlines()
+        start_line = self.find_line(start_pos)
+        logging.debug(f"Calculating bounds for start_pos={start_pos}, start_line={start_line}, content preview: {content[start:start + 100]}...")
+        logging.debug(f"Entity at line {start_line}: '{self.clean_lines[start_line]}', raw: '{lines[start_line - 1]}'")
+        logging.debug(f"Clean lines: {self.clean_lines[start_line-1:start_line+2]}")
+        start_line, end_line = self.detect_bounds(start_line, self.clean_lines)
+        if start_line == end_line:
+            self.parse_warn(f"Incomplete entity in file {self.file_name} at start={start}, using header end")
+            return content[start:end_header]
+        logging.info(f"Extracted entity from first_line={start_line} to last_line={end_line}")
+        return "\n".join(self.clean_lines[start_line:end_line + 1])
+
+    def _estimate_tokens(self, content):
+        return estimate_tokens(content)
 
 SandwichPack.register_block_class(ContentCodeRust)

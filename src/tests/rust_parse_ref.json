@@ -1,0 +1,157 @@
+{
+  "entities": [
+    {
+      "type": "function",
+      "name": "simple_function",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 3,
+      "last_line": 6,
+      "tokens": 27
+    },
+    {
+      "type": "function",
+      "name": "raw_string_function",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 9,
+      "last_line": 12,
+      "tokens": 30
+    },
+    {
+      "type": "function",
+      "name": "comment_function",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 15,
+      "last_line": 18,
+      "tokens": 18
+    },
+    {
+      "type": "function",
+      "name": "single_comment_function",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 21,
+      "last_line": 24,
+      "tokens": 20
+    },
+    {
+      "type": "struct",
+      "name": "Outer",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 27,
+      "last_line": 29,
+      "tokens": 17
+    },
+    {
+      "type": "struct",
+      "name": "Inner",
+      "visibility": "private",
+      "file_id": null,
+      "first_line": 31,
+      "last_line": 33,
+      "tokens": 13
+    },
+    {
+      "type": "function",
+      "name": "incomplete_string",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 36,
+      "last_line": 39,
+      "tokens": 27
+    },
+    {
+      "type": "interface",
+      "name": "ExampleTrait",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 42,
+      "last_line": 44,
+      "tokens": 20
+    },
+    {
+      "type": "abstract method",
+      "name": "ExampleTrait::trait_method",
+      "visibility": "private",
+      "file_id": null,
+      "first_line": 43,
+      "last_line": 43,
+      "tokens": 8
+    },
+    {
+      "type": "class",
+      "name": "ExampleTrait<Outer>",
+      "visibility": "private",
+      "file_id": null,
+      "first_line": 46,
+      "last_line": 50,
+      "tokens": 31
+    },
+    {
+      "type": "method",
+      "name": "ExampleTrait<Outer>::trait_method",
+      "visibility": "private",
+      "file_id": null,
+      "first_line": 47,
+      "last_line": 49,
+      "tokens": 10
+    },
+    {
+      "type": "module",
+      "name": "logger",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 53,
+      "last_line": 57,
+      "tokens": 29
+    },
+    {
+      "type": "function",
+      "name": "logger.logger_function",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 54,
+      "last_line": 56,
+      "tokens": 19
+    },
+    {
+      "type": "module",
+      "name": "extra_module",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 60,
+      "last_line": 67,
+      "tokens": 47
+    },
+    {
+      "type": "struct",
+      "name": "extra_module.ExtraStruct",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 61,
+      "last_line": 63,
+      "tokens": 18
+    },
+    {
+      "type": "function",
+      "name": "extra_module.extra_function",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 64,
+      "last_line": 66,
+      "tokens": 18
+    },
+    {
+      "type": "function",
+      "name": "incomplete_comment",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 70,
+      "last_line": 70,
+      "tokens": 11
+    }
+  ]
+}
