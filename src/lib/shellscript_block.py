@@ -80,4 +80,4 @@ class ContentShellScript(ContentBlock):
         return "\n".join(self.clean_lines[start_line:end_line + 1])
 
 
-SandwichPack.register_block_class(ContentCodeShellScript)
+SandwichPack.register_block_class(ContentShellScript)

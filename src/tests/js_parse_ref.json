@@ -1,0 +1,81 @@
+{
+  "entities": [
+    {
+      "type": "function",
+      "name": "simpleFunction",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 5,
+      "tokens": 16,
+      "last_line": 7
+    },
+    {
+      "type": "function",
+      "name": "arrowFunction",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 10,
+      "tokens": 22,
+      "last_line": 12
+    },
+    {
+      "type": "function",
+      "name": "exprFunction",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 15,
+      "tokens": 23,
+      "last_line": 17
+    },
+    {
+      "type": "object",
+      "name": "myObject",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 20,
+      "tokens": 31,
+      "last_line": 26
+    },
+    {
+      "type": "method",
+      "name": "myMethod",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 22,
+      "tokens": 20,
+      "last_line": 24
+    },
+    {
+      "type": "object",
+      "name": "default",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 29,
+      "tokens": 30,
+      "last_line": 35
+    },
+    {
+      "type": "method",
+      "name": "myComputed",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 31,
+      "tokens": 21,
+      "last_line": 33
+    },
+    {
+      "type": "function",
+      "name": "incompleteString",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 42,
+      "tokens": 26,
+      "last_line": 45
+    }
+  ],
+  "dependencies": {
+    "modules": ["library", "module"],
+    "imports": ["lib"],
+    "calls": []
+  }
+}

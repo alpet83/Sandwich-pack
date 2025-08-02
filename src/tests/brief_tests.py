@@ -10,7 +10,7 @@ from lib.vue_block import ContentCodeVue
 from lib.shellscript_block import ContentShellScript
 from lib.python_block import ContentCodePython
 from lib.js_block import ContentCodeJs
-from lib.php_block import ContentCodePhp
+from lib.php_block import ContentCodePHP
 
 logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'INFO').upper()
@@ -126,7 +126,7 @@ class TestClass {
     public $value = 0;
 }
 """
-        block = ContentCodePhp(content, ".php", "test.php", self.timestamp)
+        block = ContentCodePHP(content, ".php", "test.php", self.timestamp)
         block.strip_strings()
         block.strip_comments()
         logging.info(f"PHP clean_lines:\n{block.clean_lines[1:]}")

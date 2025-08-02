@@ -119,6 +119,7 @@ class ContentBlock:
                 self.parse_warn(f"Incomplete raw string literal in file {self.file_name} at line {line_num}")
                 self.strip_log.append(f"Incomplete raw string at line {line_num}, line: '{line}'")
         self.clean_lines = result_lines
+        self.get_clean_content()  # пересчитать смещения строк
         return result_lines
 
     def strip_strings(self):
@@ -157,6 +158,7 @@ class ContentBlock:
                 self.parse_warn(f"Incomplete string literal in file {self.file_name} at line {line_num}")
                 self.strip_log.append(f"Incomplete string at line {line_num}, line: '{line}'")
         self.clean_lines = result_lines
+        self.get_clean_content()  # пересчитать смещения строк
         return result_lines
 
     def strip_multiline_strings(self):
@@ -166,7 +168,9 @@ class ContentBlock:
         clean_lines = self.clean_lines
         result_lines = [""]
         in_multi_string = False
-        multi_quote = None
+        close_quote = None
+        _cq_len = 0
+
         for line_num, line in enumerate(clean_lines[1:], 1):
             if not isinstance(line, str):
                 result_lines.append("")
@@ -177,24 +181,23 @@ class ContentBlock:
             while i < _len:
                 char = line[i]
                 if not in_multi_string:
-                    for open_quote in self.open_ml_string:
+                    for j, open_quote in enumerate(self.open_ml_string):
                         _oq_len = len(open_quote)
                         if i + _oq_len <= _len and line[i:i+_oq_len] == open_quote:
                             in_multi_string = True
-                            multi_quote = open_quote
+                            close_quote = self.close_ml_string[j]
+                            _cq_len = len(close_quote)
                             clean_line += open_quote
                             i += _oq_len - 1
                             self.strip_log.append(f"Multi-line string started at line {line_num}, pos {i + 1}, quote: '{open_quote}', line: '{line}'")
                             break
                     else:
                         clean_line += char
-                elif i + len(self.close_ml_string[self.open_ml_string.index(multi_quote)]) <= _len and \
-                     line[i:i+len(self.close_ml_string[self.open_ml_string.index(multi_quote)])] == self.close_ml_string[self.open_ml_string.index(multi_quote)]:
-                    close_quote = self.close_ml_string[self.open_ml_string.index(multi_quote)]
+                elif isinstance(close_quote, str) and i + _cq_len <= _len and line[i:i+_cq_len] == close_quote:
                     in_multi_string = False
-                    multi_quote = None
                     clean_line += close_quote
                     i += len(close_quote) - 1
+                    close_quote = None
                     self.strip_log.append(f"Multi-line string ended at line {line_num}, pos {i + 1}, line: '{line}'")
                 i += 1
             result_lines.append(clean_line)
@@ -202,6 +205,7 @@ class ContentBlock:
                 self.parse_warn(f"Incomplete multi-line string in file {self.file_name} at line {line_num}")
                 self.strip_log.append(f"Incomplete multi-line string at line {line_num}, line: '{line}'")
         self.clean_lines = result_lines
+        self.get_clean_content()  # пересчитать смещения строк
         return result_lines
 
     def strip_comments(self):
@@ -211,7 +215,9 @@ class ContentBlock:
         clean_lines = self.clean_lines.copy()
         result_lines = [""]
         in_multi_comment = False
-        multi_comment_open = None
+        close_seq = None
+        end_pos = 0
+
         for line_num, line in enumerate(clean_lines[1:], 1):
             if not isinstance(line, str):
                 result_lines.append("")
@@ -219,65 +225,70 @@ class ContentBlock:
             clean_line = ""
             i = 0
             _len = len(line)
-            if in_multi_comment:
-                end_pos = line.find(self.close_ml_comment[self.open_ml_comment.index(multi_comment_open)])
-                if end_pos >= 0:
-                    in_multi_comment = False
-                    multi_comment_open = None
-                    clean_line = line[end_pos + len(self.close_ml_comment[0]):]
-                    self.strip_log.append(f"Multi-line comment ended at line {line_num}, pos {end_pos}, remaining: '{clean_line}', line: '{line}'")
-                else:
-                    clean_line = ""
-                    self.strip_log.append(f"Multi-line comment continued at line {line_num}, line: '{line}'")
-                    result_lines.append(clean_line)
-                    continue
-            while i < _len:
+            open_line = -1
+
+            while not in_multi_comment and i < _len:
                 char = line[i]
-                min_start_pos = -1
-                min_start_type = None
-                min_comment = None
+                first_comm_pos = -1
+                first_comm_type = None
+                first_comment = None
+                # подбор самого первого варианта открытия однострочного комментария
                 for sl_comment in self.open_sl_comment:
                     start_pos = line.find(sl_comment, i)
-                    if start_pos >= 0 and (min_start_pos < 0 or start_pos < min_start_pos):
-                        min_start_pos = start_pos
-                        min_start_type = "single"
-                        min_comment = sl_comment
-                for ml_comment in self.open_ml_comment:
+                    if start_pos >= 0 and (first_comm_pos < 0 or start_pos < first_comm_pos):
+                        first_comm_pos = start_pos
+                        first_comm_type = "single"
+                        first_comment = sl_comment
+
+                # подбор самого первого варианта открытия многострочного комментария, может перехватить открытие однострочного
+                for j, ml_comment in enumerate(self.open_ml_comment):
                     multi_pos = line.find(ml_comment, i)
-                    if multi_pos >= 0 and (min_start_pos < 0 or multi_pos < min_start_pos):
-                        min_start_pos = multi_pos
-                        min_start_type = "multi"
-                        min_comment = ml_comment
-                if min_start_type == "single":
-                    clean_line += line[i:min_start_pos]
-                    self.strip_log.append(f"Single-line comment at line {line_num}, pos {min_start_pos}, stripped: '{clean_line}', line: '{line}'")
+                    if multi_pos >= 0 and (first_comm_pos < 0 or multi_pos < first_comm_pos):
+                        first_comm_pos = multi_pos
+                        first_comm_type = "multi"
+                        first_comment = ml_comment
+                        close_seq = self.close_ml_comment[j]
+
+                if first_comm_type == "single":
+                    clean_line += line[i:first_comm_pos]
+                    self.strip_log.append(f"Single-line comment at line {line_num}, pos {first_comm_pos}, stripped: '{clean_line}', line: '{line}'")
                     break
-                elif min_start_type == "multi":
-                    clean_line += line[i:min_start_pos]
+
+                elif first_comm_type == "multi":
+                    clean_line += line[i:first_comm_pos]   # остается все, что было до открытия комментария
                     in_multi_comment = True
-                    multi_comment_open = min_comment
-                    i += len(multi_comment_open)
-                    end_pos = line.find(self.close_ml_comment[self.open_ml_comment.index(multi_comment_open)], i)
-                    self.strip_log.append(f"Multi-line comment started at line {line_num}, pos {min_start_pos}, line: '{line}'")
-                    if end_pos >= 0:
-                        in_multi_comment = False
-                        multi_comment_open = None
-                        clean_line += line[end_pos + len(self.close_ml_comment[0]):]
-                        self.strip_log.append(f"Multi-line comment ended at line {line_num}, pos {end_pos}, remaining: '{clean_line}', line: '{line}'")
-                        i = end_pos + len(self.close_ml_comment[0])
-                    else:
-                        break
+                    open_line = line_num
+                    i += len(first_comment)
+                    self.strip_log.append(f"Multi-line comment started at line {line_num}, pos {first_comm_pos}, line: '{line}'")
                 else:
                     clean_line += char
                 i += 1
+
+            if in_multi_comment and close_seq:
+                end_pos = line.find(close_seq)
+                if end_pos >= 0:
+                    #  если закрытие на той-же строке, что и открытие, добавляется остаток, иначе ничего
+                    if open_line == line_num:
+                        clean_line += line[end_pos + len(close_seq):]
+                    in_multi_comment = False
+                    close_seq = None
+                    self.strip_log.append(f"Multi-line comment ended at line {line_num}, pos {end_pos}, remaining: '{clean_line}', line: '{line}'")
+                else:
+                    if line_num > open_line:
+                        self.strip_log.append(f"Multi-line comment continued at line {line_num}, line: '{line}'")
+                    result_lines.append(clean_line)
+                    continue
+
             result_lines.append(clean_line)
             if in_multi_comment and line_num == len(clean_lines) - 1:
-                self.parse_warn(f"Incomplete multi-line comment in file {self.file_name} at line {line_num}")
-                self.strip_log.append(f"Incomplete multi-line comment at line {line_num}, line: '{line}'")
+                msg = f"Incomplete multi-line comment at line {line_num}, line: '{line}'"
+                self.parse_warn(msg)
+                self.strip_log.append(msg)
                 for j in range(line_num + 1, len(clean_lines)):
                     result_lines.append("")
-                    self.strip_log.append(f"Multi-line comment continued at line {j}, line: '{clean_lines[j]}'")
+                    self.strip_log.append(f"Multi-line unclosed comment continued at line {j}, line: '{clean_lines[j]}'")
         self.clean_lines = result_lines
+        self.get_clean_content()  # пересчитать смещения строк
         logging.debug(f"After strip_comments, lines 60-70: {self.clean_lines[60:71]}")
         return result_lines
 
@@ -425,6 +436,26 @@ class ContentBlock:
         logging.debug(f"Calculating bounds for start_pos={start_pos}, start_line={start_line}, content preview: {content[start:start + 100]}...")
         logging.debug(f"Entity at line {start_line}: '{self.clean_lines[start_line]}', raw: '{lines[start_line - 1]}'")
         logging.debug(f"Clean lines: {self.clean_lines[start_line-1:start_line+2]}")
+        start_line, end_line = self.detect_bounds(start_line, self.clean_lines)
+        if start_line == end_line:
+            self.parse_warn(f"Incomplete entity in file {self.file_name} at start={start}, using header end")
+            return content[start:end_header]
+        logging.info(f"Extracted entity from first_line={start_line} to last_line={end_line}")
+        return "\n".join(self.clean_lines[start_line:end_line + 1])
+
+    def extract_entity_text(self, start: int, end_header: int) -> str:
+        """Extracts the full entity text using clean_lines for brace counting.
+
+        Args:
+            start (int): Starting position in content.
+            end_header (int): End position of the entity header.
+
+        Returns:
+            str: Extracted entity text.
+        """
+        content = self.get_clean_content()
+        # lines = content.splitlines()
+        start_line = self.find_line(start)
         start_line, end_line = self.detect_bounds(start_line, self.clean_lines)
         if start_line == end_line:
             self.parse_warn(f"Incomplete entity in file {self.file_name} at start={start}, using header end")

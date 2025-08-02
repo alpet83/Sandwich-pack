@@ -37,7 +37,7 @@
       "tokens": 20
     },
     {
-      "type": "struct",
+      "type": "structure",
       "name": "Outer",
       "visibility": "public",
       "file_id": null,
@@ -46,7 +46,7 @@
       "tokens": 17
     },
     {
-      "type": "struct",
+      "type": "structure",
       "name": "Inner",
       "visibility": "private",
       "file_id": null,
@@ -127,7 +127,7 @@
       "tokens": 47
     },
     {
-      "type": "struct",
+      "type": "structure",
       "name": "extra_module.ExtraStruct",
       "visibility": "public",
       "file_id": null,
