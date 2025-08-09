@@ -1,8 +1,44 @@
 {
   "templates": {
-    "entities": "vis(pub/prv),type,name,file_id,start_line-end_line,tokens"
+    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens",
+    "modules": "module_name"
   },
-  "dep_format": "modules: details[:file_id] (str); imports: index (int) or details[:file_id] (str); calls: index (int)",
+  "dep_format": "modules: index (int) referencing modules list; imports: tuple (file_id, entity_name) referencing entities list",
+  "modules": [
+    "argparse",
+    "pathlib",
+    "lib.sandwich_pack",
+    "logging",
+    "os",
+    "datetime",
+    "json",
+    "re",
+    "abc",
+    ".code_stripper",
+    ".deps_builder",
+    "math",
+    ".llm_tools",
+    ".entity_parser",
+    "typing",
+    "lib.content_block",
+    ".iter_regex",
+    "traceback",
+    "lib.entity_parser",
+    "lib.deps_builder",
+    "lib.iter_regex",
+    "lib.js_block",
+    "lib.rust_block",
+    "lib.python_block",
+    "lib.php_block",
+    "lib.shellscript_block",
+    "lib.vue_block",
+    "unittest",
+    "my_module",
+    "chrono",
+    "entities::account_data",
+    "async_trait",
+    "entities::account"
+  ],
   "sandwiches": [
     {
       "file": "sandwich_1.txt",
@@ -10,14 +46,6 @@
         {
           "start_line": 1,
           "file_id": 0,
-          "imports": [
-            "Path",
-            "SandwichPack"
-          ],
-          "modules": [
-            "lib.sandwich_pack",
-            "pathlib"
-          ],
           "entities": [
             0,
             1,
@@ -26,24 +54,38 @@
           ]
         },
         {
-          "start_line": 112,
+          "start_line": 113,
           "file_id": 1,
-          "imports": [
-            "Path"
-          ],
-          "modules": [
-            "pathlib"
-          ],
           "entities": [
-            4,
+            4
+          ]
+        },
+        {
+          "start_line": 198,
+          "file_id": 2,
+          "entities": [
             5,
             6,
+            6,
+            6,
+            7,
+            7,
             7,
             8,
+            8,
+            8,
+            9,
+            9,
             9,
             10,
             11,
-            12,
+            12
+          ]
+        },
+        {
+          "start_line": 398,
+          "file_id": 3,
+          "entities": [
             13,
             14,
             15,
@@ -54,91 +96,28 @@
             20,
             21,
             22,
-            23
-          ]
-        },
-        {
-          "start_line": 567,
-          "file_id": 2,
-          "imports": [
-            "ContentBlock",
-            "Dict",
-            "SandwichPack"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "typing"
-          ],
-          "entities": [
+            23,
             24,
             25,
-            26
-          ]
-        },
-        {
-          "start_line": 601,
-          "file_id": 3,
-          "imports": [
-            "ContentBlock",
-            "Dict",
-            "List",
-            "SandwichPack",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "typing"
-          ],
-          "entities": [
+            26,
             27,
             28,
             29,
-            30
+            30,
+            31
           ]
         },
         {
-          "start_line": 754,
+          "start_line": 785,
           "file_id": 4,
-          "imports": [
-            "ContentBlock",
-            "Optional",
-            "Path",
-            "SandwichPack",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "pathlib",
-            "typing"
-          ],
           "entities": [
-            31,
             32,
             33,
             34,
-            35
-          ]
-        },
-        {
-          "start_line": 891,
-          "file_id": 5,
-          "imports": [
-            "ContentBlock",
-            "Optional",
-            "SandwichPack",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "typing"
-          ],
-          "entities": [
+            35,
             36,
-            37
+            37,
+            38
           ]
         }
       ]
@@ -148,23 +127,17 @@
       "blocks": [
         {
           "start_line": 1,
-          "file_id": 6,
-          "imports": [
-            "ContentBlock",
-            "Path",
-            "SandwichPack",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "pathlib"
-          ],
+          "file_id": 5,
           "entities": [
-            38,
             39,
             40,
-            41,
+            41
+          ]
+        },
+        {
+          "start_line": 35,
+          "file_id": 6,
+          "entities": [
             42,
             43,
             44,
@@ -172,151 +145,327 @@
             46,
             47,
             48,
-            49
-          ]
-        },
-        {
-          "start_line": 312,
-          "file_id": 7,
-          "imports": [
-            "ContentBlock",
-            "Dict",
-            "List",
-            "Optional",
-            "Path",
-            "estimate_tokens"
-          ],
-          "modules": [
-            ".content_block",
-            "pathlib",
-            "typing"
-          ],
-          "entities": [
+            49,
             50,
             51,
             52,
             53,
             54,
-            55,
+            55
+          ]
+        },
+        {
+          "start_line": 296,
+          "file_id": 7,
+          "entities": [
             56,
             57,
-            58
-          ]
-        },
-        {
-          "start_line": 544,
-          "file_id": 8,
-          "imports": [
-            "ContentBlock",
-            "Dict",
-            "Path",
-            "SandwichPack",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "pathlib",
-            "typing"
-          ],
-          "entities": [
+            58,
             59,
-            60,
-            61,
-            62
+            60
           ]
         },
         {
-          "start_line": 629,
-          "file_id": 9,
-          "imports": [
-            "ContentBlock",
-            "Optional",
-            "SandwichPack",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.sandwich_pack",
-            "typing"
-          ],
+          "start_line": 411,
+          "file_id": 8,
           "entities": [
+            61,
+            62,
+            62,
+            62,
+            62,
+            62,
+            62,
+            62,
+            62,
+            63,
+            63,
             63,
             64,
+            64,
+            64,
             65,
-            66
-          ]
-        },
-        {
-          "start_line": 789,
-          "file_id": 10
-        },
-        {
-          "start_line": 794,
-          "file_id": 11,
-          "imports": [
-            "ContentBlock",
-            "ContentCodeJs",
-            "ContentCodePhp",
-            "ContentCodePython",
-            "ContentCodeRust",
-            "ContentCodeVue",
-            "ContentShellScript",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.js_block",
-            "lib.php_block",
-            "lib.python_block",
-            "lib.rust_block",
-            "lib.shellscript_block",
-            "lib.vue_block"
-          ],
-          "entities": [
+            66,
             67,
             68,
-            69
-          ]
-        },
-        {
-          "start_line": 933,
-          "file_id": 12,
-          "entities": [
+            69,
             70,
             71,
             72,
-            73,
-            74,
+            72,
+            73
+          ]
+        },
+        {
+          "start_line": 705,
+          "file_id": 9,
+          "entities": [
+            74
+          ]
+        },
+        {
+          "start_line": 730,
+          "file_id": 10,
+          "entities": [
             75,
+            76,
+            76,
+            76,
             76,
             77,
             78,
             79,
             80,
-            86
+            81,
+            82,
+            83
           ]
-        },
+        }
+      ]
+    },
+    {
+      "file": "sandwich_3.txt",
+      "blocks": [
         {
-          "start_line": 1008,
-          "file_id": 13,
-          "imports": [
-            "ContentBlock",
-            "ContentCodeRust",
-            "estimate_tokens"
-          ],
-          "modules": [
-            "lib.content_block",
-            "lib.rust_block"
-          ],
+          "start_line": 1,
+          "file_id": 11,
           "entities": [
+            84,
+            85,
+            85,
+            85,
+            85,
+            86,
+            86,
+            86,
             87,
             88,
             89,
             90,
             91,
-            92,
-            93
+            92
+          ]
+        },
+        {
+          "start_line": 233,
+          "file_id": 12,
+          "entities": [
+            93,
+            94,
+            94,
+            94,
+            94,
+            94,
+            94,
+            95,
+            95,
+            96,
+            97,
+            98,
+            99,
+            100,
+            101,
+            102,
+            103,
+            104,
+            105
+          ]
+        },
+        {
+          "start_line": 517,
+          "file_id": 13,
+          "entities": [
+            106,
+            107,
+            108,
+            109,
+            110,
+            111
+          ]
+        },
+        {
+          "start_line": 793,
+          "file_id": 14,
+          "entities": [
+            112,
+            113,
+            113,
+            113,
+            114,
+            115,
+            116,
+            117,
+            118
+          ]
+        }
+      ]
+    },
+    {
+      "file": "sandwich_4.txt",
+      "blocks": [
+        {
+          "start_line": 1,
+          "file_id": 15,
+          "entities": [
+            119,
+            120,
+            120,
+            121,
+            122,
+            123
+          ]
+        },
+        {
+          "start_line": 97,
+          "file_id": 16
+        },
+        {
+          "start_line": 102,
+          "file_id": 17,
+          "entities": [
+            124,
+            125,
+            126,
+            127,
+            128,
+            129,
+            130,
+            131,
+            132,
+            133,
+            133,
+            134,
+            135,
+            136
+          ]
+        },
+        {
+          "start_line": 298,
+          "file_id": 18,
+          "entities": [
+            137,
+            138
+          ]
+        },
+        {
+          "start_line": 367,
+          "file_id": 19,
+          "entities": [
+            139,
+            140,
+            141,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147
+          ]
+        },
+        {
+          "start_line": 425,
+          "file_id": 20,
+          "entities": [
+            148,
+            149,
+            150,
+            151,
+            152,
+            153
+          ]
+        },
+        {
+          "start_line": 458,
+          "file_id": 21,
+          "entities": [
+            154,
+            155,
+            156,
+            157,
+            158
+          ]
+        },
+        {
+          "start_line": 481,
+          "file_id": 22,
+          "entities": [
+            159,
+            160,
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            167,
+            168,
+            169,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            176,
+            177,
+            177,
+            178
+          ]
+        },
+        {
+          "start_line": 663,
+          "file_id": 23,
+          "entities": [
+            179,
+            180
+          ]
+        },
+        {
+          "start_line": 678,
+          "file_id": 24,
+          "entities": [
+            181,
+            182,
+            183,
+            184,
+            185,
+            186,
+            187,
+            188
+          ]
+        },
+        {
+          "start_line": 822,
+          "file_id": 25,
+          "entities": [
+            189,
+            190,
+            191,
+            192,
+            193
+          ]
+        },
+        {
+          "start_line": 895,
+          "file_id": 26,
+          "entities": [
+            194,
+            195,
+            196,
+            197
+          ]
+        },
+        {
+          "start_line": 992,
+          "file_id": 27,
+          "entities": [
+            198,
+            199,
+            200,
+            201,
+            202,
+            203
           ]
         }
       ]

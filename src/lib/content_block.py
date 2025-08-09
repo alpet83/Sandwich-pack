@@ -1,42 +1,23 @@
-# /lib/content_block.py, updated 2025-07-31 14:11 EEST
+# /lib/content_block.py, updated 2025-08-06 14:30 EEST
 # Formatted with proper line breaks and indentation for project compliance.
+# Proposed: 2025-08-06
+# Changes: Added module_map parameter to compress for imported class name compression (e.g., SandwichPack), added log separator (CLA Rule 2: Ensure code correctness, CLA Rule 12: Minimize changes).
 
 import logging
 import re
 import os
 import math
 from pathlib import Path
+from .deps_builder import DepsParser
+from .llm_tools import estimate_tokens
+from .code_stripper import CodeStringStripper, CodeCommentStripper
 
-# CRITICAL NOTICE: Using content for bounds detection before full cleaning is prohibited to avoid errors from comments/strings.
-# PROTECTION CODE DON'T TOUCH!!!
-Optional = None
-List = None
-Dict = None
-Tuple = None
-assert List is None
-assert Dict is None
-assert Tuple is None
+# PROTECTION CODE DON'T TOUCH, typing is disabled!!!
+Optional = List = Tuple = Dict = None
 
 logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'DEBUG').upper()
 )
-
-def estimate_tokens(content):
-    """Estimates tokens by counting words and spaces more accurately."""
-    if not content:
-        return 0
-    tokens = 0
-    words = re.findall(r'\S+', content)
-    for word in words:
-        if len(word) >= 5:
-            tokens += math.ceil(len(word) / 4)
-        else:
-            tokens += 1
-    spaces = len(re.findall(r'\s+', content))
-    tokens += spaces
-    logging.debug("Estimated tokens for content (length=%d): %d tokens (words=%d, spaces=%d)",
-                  len(content), tokens, len(words), spaces)
-    return tokens
 
 class ContentBlock:
     supported_types = [':document', ':post']
@@ -45,28 +26,31 @@ class ContentBlock:
         self.content_text = content_text
         self.content_type = content_type
         self.tag = "post" if content_type == ":post" else "document"
+        self.parsers = []
+        self.dependencies = {"modules": [], "imports": {}}
         self.file_name = file_name
         self.timestamp = timestamp
+        self.call_method_sep = ['.']
         self.post_id = kwargs.get('post_id')
         self.user_id = kwargs.get('user_id')
         self.relevance = kwargs.get('relevance', 0)
         self.file_id = kwargs.get('file_id')
         self.tokens = estimate_tokens(content_text)
-        self.clean_lines = ["Line №0"] + self.content_text.splitlines()  # 1-based indexing, volatile
-        self.strip_log = []  # Log of detected comments and strings for debugging
-        self.warnings = []  # List of warning messages
-        self.entity_map = {}  # Dict[first_line: entity]
-        self.string_quote_chars = "\"'"  # Characters for string literals
-        self.raw_str_prefix = None  # Prefix for raw strings (e.g., 'r' for Rust)
-        self.raw_quote_char = None  # Quote char for raw strings (e.g., "'" for PHP)
-        self.open_ml_string = []  # Opening sequences for multi-line strings
-        self.close_ml_string = []  # Closing sequences for multi-line strings
-        self.open_sl_comment = ["//"]  # Single-line comment starts
-        self.open_ml_comment = ["/*"]  # Multi-line comment starts
-        self.close_ml_comment = ["*/"]  # Multi-line comment ends
-        self.escape_char = "\\"  # Escape character
-        self.module_prefix = ""  # Tracks current module prefix (e.g., "logger.")
-        self.line_offsets = []  # List of character offsets for each line in clean_content
+        self.clean_lines = ["Line №0"] + self.content_text.splitlines()
+        self.strip_log = []
+        self.warnings = []
+        self.entity_map = {}
+        self.string_quote_chars = "\"'"
+        self.raw_str_prefix = None
+        self.raw_quote_char = None
+        self.open_ml_string = []
+        self.close_ml_string = []
+        self.open_sl_comment = ["//"]
+        self.open_ml_comment = [r"/\*"]
+        self.close_ml_comment = [r"\*/"]
+        self.escape_char = "\\"
+        self.module_prefix = ""
+        self.line_offsets = []
         logging.debug(f"Initialized ContentBlock with content_type={content_type}, tag={self.tag}, file_name={file_name}")
 
     def parse_warn(self, msg):
@@ -74,223 +58,40 @@ class ContentBlock:
         self.warnings.append(msg)
         logging.warning(msg)
 
-    def check_raw_escape(self, line, position, quote_char):
-        """Checks if the character at position is part of a raw string escape sequence."""
-        return False  # Default: no escape sequences in raw strings (e.g., Rust)
-
-    def strip_raw_strings(self):
-        """Strips raw string literals, preserving empty lines."""
-        if len(self.clean_lines) <= 1:
-            raise Exception("clean_lines not filled")
-        clean_lines = self.clean_lines
-        result_lines = [""]
-        in_raw_string = False
-        quote_char = None
-        _rsq_len = len(self.raw_str_prefix) if self.raw_str_prefix else 0
-        for line_num, line in enumerate(clean_lines[1:], 1):
-            if not isinstance(line, str):
-                result_lines.append("")
-                continue
-            clean_line = ""
-            i = 0
-            _len = len(line)
-            while i < _len:
-                char = line[i]
-                if not in_raw_string:
-                    prefix_chars = line[i - _rsq_len:i] if i >= _rsq_len else None
-                    _is_raw_start = self.raw_str_prefix and prefix_chars == self.raw_str_prefix
-                    _is_quote_char = char in self.string_quote_chars
-                    if (self.raw_quote_char and char == self.raw_quote_char) or (_is_raw_start and _is_quote_char):
-                        in_raw_string = True
-                        quote_char = char
-                        i += _rsq_len if _is_raw_start else 1
-                        self.strip_log.append(f"Raw string {'with prefix ' + self.raw_str_prefix if _is_raw_start else ''} started at line {line_num}, pos {i}, quote: '{char}', line: '{line}'")
-                    clean_line += char
-                elif self.check_raw_escape(line, i, quote_char):
-                    i += 1
-                elif char == quote_char:
-                    in_raw_string = False
-                    quote_char = None
-                    clean_line += char
-                    self.strip_log.append(f"Raw string ended at line {line_num}, pos {i + 1}, line: '{line}'")
-                i += 1
-            result_lines.append(clean_line)
-            if in_raw_string:
-                self.parse_warn(f"Incomplete raw string literal in file {self.file_name} at line {line_num}")
-                self.strip_log.append(f"Incomplete raw string at line {line_num}, line: '{line}'")
-        self.clean_lines = result_lines
-        self.get_clean_content()  # пересчитать смещения строк
-        return result_lines
-
     def strip_strings(self):
-        """Strips string literals with full escaping, preserving empty lines."""
+        """Strips string literals using CodeStringStripper."""
         if len(self.clean_lines) <= 1:
             self.clean_lines = [''] + self.content_text.splitlines()
-        self.strip_raw_strings()
-        self.strip_multiline_strings()
-        clean_lines = self.clean_lines
-        result_lines = [""]
-        quote_char = None
-        for line_num, line in enumerate(clean_lines[1:], 1):
-            in_string = False
-            if not isinstance(line, str):
-                result_lines.append("")
-                continue
-            clean_line = ""
-            i = 0
-            _len = len(line)
-            while i < _len:
-                char = line[i]
-                if not in_string:
-                    if char in self.string_quote_chars:
-                        in_string = True
-                        quote_char = char
-                    clean_line += char
-                elif char == self.escape_char and i + 1 < _len:
-                    i += 1
-                elif char == quote_char:
-                    in_string = False
-                    quote_char = None
-                    clean_line += char
-                i += 1
-            result_lines.append(clean_line)
-            if in_string:
-                self.parse_warn(f"Incomplete string literal in file {self.file_name} at line {line_num}")
-                self.strip_log.append(f"Incomplete string at line {line_num}, line: '{line}'")
-        self.clean_lines = result_lines
-        self.get_clean_content()  # пересчитать смещения строк
-        return result_lines
-
-    def strip_multiline_strings(self):
-        """Strips multi-line string literals, preserving empty lines."""
-        if len(self.clean_lines) <= 1:
-            raise Exception("clean_lines not filled")
-        clean_lines = self.clean_lines
-        result_lines = [""]
-        in_multi_string = False
-        close_quote = None
-        _cq_len = 0
-
-        for line_num, line in enumerate(clean_lines[1:], 1):
-            if not isinstance(line, str):
-                result_lines.append("")
-                continue
-            clean_line = ""
-            i = 0
-            _len = len(line)
-            while i < _len:
-                char = line[i]
-                if not in_multi_string:
-                    for j, open_quote in enumerate(self.open_ml_string):
-                        _oq_len = len(open_quote)
-                        if i + _oq_len <= _len and line[i:i+_oq_len] == open_quote:
-                            in_multi_string = True
-                            close_quote = self.close_ml_string[j]
-                            _cq_len = len(close_quote)
-                            clean_line += open_quote
-                            i += _oq_len - 1
-                            self.strip_log.append(f"Multi-line string started at line {line_num}, pos {i + 1}, quote: '{open_quote}', line: '{line}'")
-                            break
-                    else:
-                        clean_line += char
-                elif isinstance(close_quote, str) and i + _cq_len <= _len and line[i:i+_cq_len] == close_quote:
-                    in_multi_string = False
-                    clean_line += close_quote
-                    i += len(close_quote) - 1
-                    close_quote = None
-                    self.strip_log.append(f"Multi-line string ended at line {line_num}, pos {i + 1}, line: '{line}'")
-                i += 1
-            result_lines.append(clean_line)
-            if in_multi_string:
-                self.parse_warn(f"Incomplete multi-line string in file {self.file_name} at line {line_num}")
-                self.strip_log.append(f"Incomplete multi-line string at line {line_num}, line: '{line}'")
-        self.clean_lines = result_lines
-        self.get_clean_content()  # пересчитать смещения строк
-        return result_lines
+        stripper = CodeStringStripper(
+            self,
+            string_quote_chars=self.string_quote_chars,
+            raw_str_prefix=self.raw_str_prefix,
+            raw_quote_char=self.raw_quote_char,
+            open_ml_string=self.open_ml_string,
+            close_ml_string=self.close_ml_string,
+            escape_char=self.escape_char
+        )
+        self.clean_lines = stripper.strip(self.clean_lines)
+        self.strip_log.extend(stripper.strip_log)
+        self.warnings.extend(stripper.warnings)
+        self.get_clean_content()
+        return self.clean_lines
 
     def strip_comments(self):
-        """Strips comments from content, preserving empty lines."""
+        """Strips comments using CodeCommentStripper."""
         if len(self.clean_lines) <= 1:
             raise Exception("clean_lines not filled")
-        clean_lines = self.clean_lines.copy()
-        result_lines = [""]
-        in_multi_comment = False
-        close_seq = None
-        end_pos = 0
-
-        for line_num, line in enumerate(clean_lines[1:], 1):
-            if not isinstance(line, str):
-                result_lines.append("")
-                continue
-            clean_line = ""
-            i = 0
-            _len = len(line)
-            open_line = -1
-
-            while not in_multi_comment and i < _len:
-                char = line[i]
-                first_comm_pos = -1
-                first_comm_type = None
-                first_comment = None
-                # подбор самого первого варианта открытия однострочного комментария
-                for sl_comment in self.open_sl_comment:
-                    start_pos = line.find(sl_comment, i)
-                    if start_pos >= 0 and (first_comm_pos < 0 or start_pos < first_comm_pos):
-                        first_comm_pos = start_pos
-                        first_comm_type = "single"
-                        first_comment = sl_comment
-
-                # подбор самого первого варианта открытия многострочного комментария, может перехватить открытие однострочного
-                for j, ml_comment in enumerate(self.open_ml_comment):
-                    multi_pos = line.find(ml_comment, i)
-                    if multi_pos >= 0 and (first_comm_pos < 0 or multi_pos < first_comm_pos):
-                        first_comm_pos = multi_pos
-                        first_comm_type = "multi"
-                        first_comment = ml_comment
-                        close_seq = self.close_ml_comment[j]
-
-                if first_comm_type == "single":
-                    clean_line += line[i:first_comm_pos]
-                    self.strip_log.append(f"Single-line comment at line {line_num}, pos {first_comm_pos}, stripped: '{clean_line}', line: '{line}'")
-                    break
-
-                elif first_comm_type == "multi":
-                    clean_line += line[i:first_comm_pos]   # остается все, что было до открытия комментария
-                    in_multi_comment = True
-                    open_line = line_num
-                    i += len(first_comment)
-                    self.strip_log.append(f"Multi-line comment started at line {line_num}, pos {first_comm_pos}, line: '{line}'")
-                else:
-                    clean_line += char
-                i += 1
-
-            if in_multi_comment and close_seq:
-                end_pos = line.find(close_seq)
-                if end_pos >= 0:
-                    #  если закрытие на той-же строке, что и открытие, добавляется остаток, иначе ничего
-                    if open_line == line_num:
-                        clean_line += line[end_pos + len(close_seq):]
-                    in_multi_comment = False
-                    close_seq = None
-                    self.strip_log.append(f"Multi-line comment ended at line {line_num}, pos {end_pos}, remaining: '{clean_line}', line: '{line}'")
-                else:
-                    if line_num > open_line:
-                        self.strip_log.append(f"Multi-line comment continued at line {line_num}, line: '{line}'")
-                    result_lines.append(clean_line)
-                    continue
-
-            result_lines.append(clean_line)
-            if in_multi_comment and line_num == len(clean_lines) - 1:
-                msg = f"Incomplete multi-line comment at line {line_num}, line: '{line}'"
-                self.parse_warn(msg)
-                self.strip_log.append(msg)
-                for j in range(line_num + 1, len(clean_lines)):
-                    result_lines.append("")
-                    self.strip_log.append(f"Multi-line unclosed comment continued at line {j}, line: '{clean_lines[j]}'")
-        self.clean_lines = result_lines
-        self.get_clean_content()  # пересчитать смещения строк
-        logging.debug(f"After strip_comments, lines 60-70: {self.clean_lines[60:71]}")
-        return result_lines
+        stripper = CodeCommentStripper(
+            self,
+            open_sl_comment=self.open_sl_comment,
+            open_ml_comment=self.open_ml_comment,
+            close_ml_comment=self.close_ml_comment
+        )
+        self.clean_lines = stripper.strip(self.clean_lines)
+        self.strip_log.extend(stripper.strip_log)
+        self.warnings.extend(stripper.warnings)
+        self.get_clean_content()
+        return self.clean_lines
 
     def save_clean(self, file_name):
         """Saves the cleaned content to a file for debugging, replacing empty lines with line number comments."""
@@ -314,16 +115,15 @@ class ContentBlock:
         self.line_offsets = [0]
         offset = 0
         for line in self.clean_lines[1:]:
-            offset += len(line) + 1  # +1 for newline
+            offset += len(line) + 1
             self.line_offsets.append(offset)
-        logging.debug(f"Updated line_offsets: {self.line_offsets[:10]}... (total {len(self.line_offsets)})")
-        logging.debug(f"Line offsets 46-61: {self.line_offsets[46:62]}")
+        # logging.debug(f"Updated line_offsets: {self.line_offsets[:10]}... (total {len(self.line_offsets)})")
         return content
 
     def find_line(self, content_offset):
         """Finds the line number for a given content offset."""
         if not self.line_offsets:
-            self.get_clean_content()  # Ensure line_offsets is populated
+            self.get_clean_content()
         for i, offset in enumerate(self.line_offsets):
             if content_offset < offset:
                 return i
@@ -332,8 +132,7 @@ class ContentBlock:
     def count_chars(self, line_num, ch):
         """Counts occurrences of a character in a specific line of clean code."""
         if len(self.clean_lines) <= 1:
-            self.strip_strings()
-            self.strip_comments()
+            raise Exception("clean_lines not initialized")
         if line_num < 1 or line_num >= len(self.clean_lines):
             logging.error(f"Invalid line number {line_num} for file {self.file_name}")
             return 0
@@ -352,22 +151,27 @@ class ContentBlock:
         self.entity_map = sorted_map
         return result
 
-    def detect_bounds(self, start_line, clean_lines: list):
+    def detect_bounds(self, start_line, clean_lines):
         """Detects the start and end line of an entity using brace counting."""
         if start_line < 1 or start_line >= len(clean_lines) or not clean_lines[start_line] or not clean_lines[start_line].strip():
             logging.error(f"Invalid start line {start_line} for file {self.file_name} module [{self.module_prefix}]")
             return start_line, start_line
         brace_count = 0
         line_num = start_line
+        # поиск открывающей скобки, для варианта когда start_line указывает на начало многострочного определения функции/метода
+        for i in range(8):
+            line = clean_lines[line_num]
+            if line.count('{') > 0:
+                break
+            line_num += 1
+
         while line_num < len(clean_lines):
             line = clean_lines[line_num]
             if not isinstance(line, str) or not line.strip():
                 line_num += 1
                 continue
             brace_count += line.count('{') - line.count('}')
-            logging.debug(f"Line {line_num}: brace_count={brace_count}, line: '{line.strip()}'")
             if brace_count == 0 and line_num >= start_line:
-                # Include the line with the closing brace
                 return start_line, line_num
             line_num += 1
         self.parse_warn(f"Incomplete entity at line {start_line} in file {self.file_name}, brace_count={brace_count}")
@@ -376,36 +180,24 @@ class ContentBlock:
     def check_entity_placement(self, line_num: int, name: str):
         """Checks if an entity with the given name is correctly placed at line_num."""
         if line_num < 1 or line_num >= len(self.clean_lines) or not self.clean_lines[line_num]:
+            logging.warning(f" check_entity_placement failed: outbound {line_num} or void line")
             return False
         line = self.clean_lines[line_num]
-        base_name = name.split(".")[-1]  # Get in module name
-        base_name = base_name.split("::")[-1].split("<")[0]  # Extract base name
-
+        base_name = name.split(".")[-1]
+        base_name = base_name.split("::")[-1].split("<")[0]
         pattern = rf"\b{base_name}\b"
         result = bool(re.search(pattern, line))
         if not result:
-            # Search for first occurrence of base_name in clean_lines
+            best = 10
             for i, search_line in enumerate(self.clean_lines[1:], 1):
                 if isinstance(search_line, str) and re.search(pattern, search_line):
-                    logging.debug(f"First occurrence of '{base_name}' found at line {i}: '{search_line}'")
-                    break
-            else:
-                logging.debug(f"No occurrence of '{base_name}' found in clean_lines")
-        logging.debug(f"Checking entity placement for {name} at line {line_num}: {'Passed' if result else 'Failed'}, line: '{line}'")
-        return result
+                    diff = line_num - i
+                    best = min(best, abs(diff))
+                    logging.debug(f"  occurrence of '{base_name}' found at line {i}: '{search_line}'")
+            result = abs(best) <= 1
 
-    def check_lines_match(self, offset, full_clean_lines):
-        """Validates that clean_lines matches full_clean_lines at the given offset."""
-        if offset < 1 or offset >= len(self.clean_lines):
-            logging.error(f"Invalid offset {offset} for file {self.file_name}")
-            return False
-        for i, line in enumerate(self.clean_lines[offset:], offset):
-            if i >= len(full_clean_lines):
-                return False
-            if line != full_clean_lines[i]:
-                logging.warning(f"Line mismatch at {i}: expected '{full_clean_lines[i]}', got '{line}'")
-                return False
-        return True
+        # logging.debug(f"Checking entity placement for {name} at line {line_num}: {'Passed' if result else 'Failed'}, line: '{line}'")
+        return result
 
     def add_entity(self, line_num: int, entity: dict):
         """Adds an entity to entity_map with placement and duplication checks."""
@@ -418,67 +210,175 @@ class ContentBlock:
             logging.warning(f"Entity {entity['name']} placement check failed at line {line_num}, line: '{self.clean_lines[line_num]}'")
             return False
         entity["first_line"] = line_num
-        # Respect last_line for abstract methods, otherwise use detect_bounds
         if entity["type"] != "abstract method" or "last_line" not in entity:
             entity["last_line"] = self.detect_bounds(line_num, self.clean_lines)[1]
         self.entity_map[line_num] = entity
         logging.debug(f"Added entity {entity['name']} at first_line={line_num}, last_line={entity['last_line']}")
         return True
 
-    def _extract_full_entity(self, start, end_header, content=None):
+    def extract_entity_text(self, def_start: int, def_end: int) -> str:
         """Extracts the full entity text using clean_lines for brace counting."""
-        if len(self.clean_lines) <= 1:
-            raise Exception("clean_lines not filled")
-        content = content or self.get_clean_content()
-        start_pos = start
-        lines = content.splitlines()
-        start_line = self.find_line(start_pos)
-        logging.debug(f"Calculating bounds for start_pos={start_pos}, start_line={start_line}, content preview: {content[start:start + 100]}...")
-        logging.debug(f"Entity at line {start_line}: '{self.clean_lines[start_line]}', raw: '{lines[start_line - 1]}'")
-        logging.debug(f"Clean lines: {self.clean_lines[start_line-1:start_line+2]}")
+        content = self.get_clean_content()
+        start_line = self.find_line(def_end)  # открывающая реальная скобка должна находиться тут
         start_line, end_line = self.detect_bounds(start_line, self.clean_lines)
         if start_line == end_line:
-            self.parse_warn(f"Incomplete entity in file {self.file_name} at start={start}, using header end")
-            return content[start:end_header]
+            self.parse_warn(f"Incomplete/abstract entity in file {self.file_name} at start={start}, line @{start_line} using header end")
+            return content[start:].splitlines()[0]
         logging.info(f"Extracted entity from first_line={start_line} to last_line={end_line}")
         return "\n".join(self.clean_lines[start_line:end_line + 1])
 
-    def extract_entity_text(self, start: int, end_header: int) -> str:
-        """Extracts the full entity text using clean_lines for brace counting.
+    def extend_deps(self, parser):
+        m = []
+        i = {}
+        deps = parser
+        if getattr(parser, 'dependencies', False):
+            deps = parser.dependencies
+        i = getattr(deps, 'imports', {})
+        m = getattr(deps, 'modules', [])
+        unique = set(self.dependencies['modules'])
+        unique.update(m)
+        self.dependencies['modules'] = list(unique)
+        self.dependencies['imports'].update(i)
+
+    def full_text_replace(self, from_str: str, entity_id: int, ent_type: str, is_definition: bool = False) -> str:
+        """Performs context-aware replacement of entity names with \x0F<entity_id>.
 
         Args:
-            start (int): Starting position in content.
-            end_header (int): End position of the entity header.
+            from_str (str): The entity name to replace.
+            entity_id (int): The global entity index to replace with.
+            ent_type (str): The type of entity (function, local_function, method, abstract method, structure, class, interface, module, component, object).
+            is_definition (bool): If True, replace in definition line without context restrictions.
 
         Returns:
-            str: Extracted entity text.
+            str: The content with replaced entity names.
         """
-        content = self.get_clean_content()
-        # lines = content.splitlines()
-        start_line = self.find_line(start)
-        start_line, end_line = self.detect_bounds(start_line, self.clean_lines)
-        if start_line == end_line:
-            self.parse_warn(f"Incomplete entity in file {self.file_name} at start={start}, using header end")
-            return content[start:end_header]
-        logging.info(f"Extracted entity from first_line={start_line} to last_line={end_line}")
-        return "\n".join(self.clean_lines[start_line:end_line + 1])
+        if is_definition:
+            pattern = rf"\b{re.escape(from_str)}\b"
+        else:
+            if ent_type in ("function", "local_function"):
+                pattern = rf"(?:(?<=[\s])|\b){re.escape(from_str)}(?=\s|\()"
+            elif ent_type in ("method", "abstract method"):
+                pattern = rf"(?<=[\s.->]){re.escape(from_str)}(?=\s|\()"
+            elif ent_type == "structure":
+                pattern = rf"(?<=[\s.->|<]){re.escape(from_str)}(?=\s|\(|<|>)"
+            elif ent_type in ("class", "interface"):
+                pattern = rf"(?<=[\s|=\(]){re.escape(from_str)}(?=\s|\(|\.|,|;|\))*"  # варианты использования классов: конструкция, наследование, вызов статического метода, импорт в заголовке
+            else:
+                pattern = rf"\b{re.escape(from_str)}\b"
+        compressed = re.sub(pattern, f"\x0F{entity_id}", self.content_text)
+        if compressed == self.content_text:
+            logging.warning(f"Failed replace '{from_str}' with '\x0F{entity_id}' in {self.file_name} (type={ent_type}, is_definition={is_definition})")
+        else:
+            logging.debug(f"Replaced '{from_str}' with '\x0F{entity_id}' in {self.file_name} (type={ent_type}, is_definition={is_definition})")
+            self.content_text = compressed
+
+    def compress(self, entity_rev_map, file_map: dict):
+        """Compresses entity names in content_text to their global indexes prefixed with ANSI \x0F.
+
+        Args:
+            entity_rev_map: Dictionary mapping (file_id, ent_type, ent_name) to entity_id.
+            file_map: Dictionary file names to file_id.
+        """
+        if self.content_type == ":post":
+            logging.debug(f"No compression for post content: {self.file_name}")
+            return
+        file_index = {}
+        for file_name, file_id in file_map.items():
+            file_index[file_id] = file_name
+        ent_index = {}
+        for (file_id, ent_type, ent_name) in entity_rev_map:
+            ent_index[ent_name] = (file_id, ent_type, ent_name)
+
+        logging.debug(f"------- compressing {self.file_name} -------")
+        original_length = len(self.content_text)
+        valid_entities = {}
+        name_count = {}
+        for entity in self.entity_map.values():
+            ent_name = entity["name"]
+            name_count[ent_name] = name_count.get(ent_name, 0) + 1
+
+        for line_num, entity in self.entity_map.items():
+            ent_type = entity["type"]
+            ent_name = entity["name"]
+            if name_count[ent_name] > 1:
+                logging.debug(f"SKIP_ENTITY: non unique name {ent_name}")
+                continue
+            if ent_type in ("function", "local_function", "class", "interface", "structure", "method", "abstract method", "module", "component", "object"):
+                valid_entities[ent_name] = (self.file_id, ent_type, line_num)
+                logging.debug(f"Added local entity {ent_name} ({ent_type}, file_id={self.file_id}, line={line_num}) for compression")
+            if "parent" in entity and entity["parent"]:
+                parent_name = entity["parent"]
+                for ent_type in ("class", "interface"):
+                    key = (self.file_id, ent_type, parent_name)
+                    if key in entity_rev_map:
+                        valid_entities[parent_name] = (self.file_id, ent_type, None)
+                        logging.debug(f"Added parent entity {parent_name} ({ent_type}, file_id={self.file_id}) for compression")
+
+        for parser in getattr(self, "parsers", []):
+            if isinstance(parser, DepsParser):
+                checked = 0
+                for ent_name in parser.imports.keys():
+                    checked += 1
+                    (file_id, ent_type, ent_exists) = ent_index.get(ent_name, (-1, None, None))
+                    if file_id >= 0:
+                        file_name = file_index.get(file_id, "unknown")
+                        if ent_name == ent_exists:
+                            # TODO: можно добавить проверку для коротких имен, на соответствие mod_name и file_name
+                            mod_name = parser.imports[ent_name]
+                            valid_entities[ent_name] = (file_id, ent_type, None)
+                            logging.debug(f"Added imported entity {ent_name} ({ent_type}, mod={mod_name}, file_id={file_id}), file_name=`{file_name}` for compression")
+                    else:
+                        logging.warning(f"Failed locate imported entity {ent_name}")
+                logging.debug(f"Checked {checked} from imports: {parser.imports}")
+
+        compressed_count = 0
+        for ent_name, (file_id, ent_type, line_num) in valid_entities.items():
+            key = (file_id, ent_type, ent_name)
+            is_definition = False
+            if line_num is not None and line_num in self.entity_map:
+                line = self.clean_lines[line_num]
+                # TODO: тут надо заменить проверку на простое соответствие линии определения сущности
+                if isinstance(line, str) and re.search(rf"\b(def|function|class|struct|impl|mod)\s+{re.escape(ent_name)}\b", line):
+                    is_definition = True
+            if file_id is None:
+                for fid in {f[0] for f in entity_rev_map.keys()}:
+                    test_key = (fid, ent_type, ent_name)
+                    if test_key in entity_rev_map:
+                        index = entity_rev_map[test_key]
+                        self.full_text_replace(ent_name, index, ent_type, is_definition)
+                        compressed_count += 1
+                        break
+            elif key in entity_rev_map:
+                index = entity_rev_map[key]
+                self.full_text_replace(ent_name, index, ent_type, is_definition)
+                compressed_count += 1
+
+        self.tokens = estimate_tokens(self.content_text)
+        compressed_length = len(self.content_text)
+        logging.info(f"Compressed {compressed_count} entities in {self.file_name}, "
+                     f"original length: {original_length}, compressed length: {compressed_length}, "
+                     f"reduced by {original_length - compressed_length} characters, new tokens: {self.tokens}")
 
     def to_sandwich_block(self):
+        """Convert block to sandwich format with attributes mapped via dictionary."""
+        # Dictionary mapping tag attributes to object field names
+        attr_to_field = {
+            'post_id': 'post_id'
+        } if self.content_type == ':post' else {
+            'file_id': 'file_id',
+            'mod_time': 'timestamp'
+        }
+        attr_to_field['user_id'] = 'user_id'
+        attr_to_field['relevance'] = 'relevance'
+
+        # Build tag attributes, excluding None or irrelevant fields
         attrs = []
-        if self.content_type == ":post":
-            attrs.append(f'post_id="{self.post_id}"')
-            if self.user_id is not None:
-                attrs.append(f'user_id="{self.user_id}"')
-            if self.timestamp:
-                attrs.append(f'mod_time="{self.timestamp}"')
-            if self.relevance is not None:
-                attrs.append(f'relevance="{self.relevance}"')
-        else:
-            if self.file_name:
-                attrs.append(f'src="{self.file_name}"')
-            if self.timestamp:
-                attrs.append(f'mod_time="{self.timestamp}"')
-            if self.file_id is not None:
-                attrs.append(f'file_id="{self.file_id}"')
+        for attr, field in attr_to_field.items():
+            value = getattr(self, field, None)
+            if value is not None:
+                attrs.append(f'{attr}="{value}"')
         attr_str = " ".join(attrs)
         return f"<{self.tag} {attr_str}>\n{self.content_text}\n</{self.tag}>"
+
+    def parse_content(self, clean_lines=None, depth=0):
+        return {"entities": [], "dependencies": self.dependencies}

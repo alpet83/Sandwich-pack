@@ -1,0 +1,30 @@
+2025-08-06 19:43:14,148 #INFO: Loaded 27 files from sandwiches_index.json
+2025-08-06 19:43:14,148 #INFO: Loaded 1 sandwich entries from sandwiches_structure.json
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=0 (/spack.py) at start_line=1 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 16:15:36Z" file_id="0">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=1 (/spack_verify.py) at start_line=112 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 15:48:54Z" file_id="1">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=2 (/lib/code_stripper.py) at start_line=197 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 10:30:03Z" file_id="2">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=3 (/lib/content_block.py) at start_line=397 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 14:31:29Z" file_id="3">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=4 (/lib/deps_builder.py) at start_line=767 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 12:55:35Z" file_id="4">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=5 (/lib/document_block.py) at start_line=875 in sandwiches\sandwich_1.txt: <python mod_time="2025-07-15 12:56:33Z" file_id="5">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=6 (/lib/entity_parser.py) at start_line=909 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 10:02:44Z" file_id="6">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=7 (/lib/js_block.py) at start_line=1090 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 13:00:14Z" file_id="7">
+2025-08-06 19:43:14,149 #INFO: Opening tag found for file_id=8 (/lib/llm_tools.py) at start_line=1390 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 09:55:32Z" file_id="8">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=9 (/lib/php_block.py) at start_line=1415 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 12:36:33Z" file_id="9">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=10 (/lib/python_block.py) at start_line=1594 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 13:00:52Z" file_id="10">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=11 (/lib/rust_block.py) at start_line=1793 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 13:00:14Z" file_id="11">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=12 (/lib/sandwich_pack.py) at start_line=2013 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 16:43:06Z" file_id="12">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=13 (/lib/shellscript_block.py) at start_line=2287 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 12:36:44Z" file_id="13">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=14 (/lib/vue_block.py) at start_line=2394 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 12:36:55Z" file_id="14">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=15 (/lib/__init__.py) at start_line=2578 in sandwiches\sandwich_1.txt: <python mod_time="2025-07-15 06:32:56Z" file_id="15">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=16 (/tests/brief_tests.py) at start_line=2583 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-05 12:34:04Z" file_id="16">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=17 (/tests/regex_imports_php.py) at start_line=2763 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-03 08:01:14Z" file_id="17">
+2025-08-06 19:43:14,150 #INFO: Opening tag found for file_id=18 (/tests/test.js) at start_line=2832 in sandwiches\sandwich_1.txt: <jss mod_time="2025-08-02 09:04:08Z" file_id="18">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=19 (/tests/test.php) at start_line=2890 in sandwiches\sandwich_1.txt: <php mod_time="2025-08-06 09:54:23Z" file_id="19">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=20 (/tests/test.py) at start_line=2923 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-04 09:40:17Z" file_id="20">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=21 (/tests/test.rs) at start_line=2946 in sandwiches\sandwich_1.txt: <rustc mod_time="2025-07-31 13:50:50Z" file_id="21">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=22 (/tests/test.ts) at start_line=3021 in sandwiches\sandwich_1.txt: <tss mod_time="2025-08-02 06:22:30Z" file_id="22">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=23 (/tests/test_js_parse.py) at start_line=3036 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-02 08:08:27Z" file_id="23">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=24 (/tests/test_php_parse.py) at start_line=3180 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-06 09:32:09Z" file_id="24">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=25 (/tests/test_py_parse.py) at start_line=3249 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-04 08:28:15Z" file_id="25">
+2025-08-06 19:43:14,151 #INFO: Opening tag found for file_id=26 (/tests/test_rust_parse.py) at start_line=3346 in sandwiches\sandwich_1.txt: <python mod_time="2025-08-01 07:16:51Z" file_id="26">
+2025-08-06 19:43:14,151 #INFO: All files from sandwiches_index.json found in sandwiches

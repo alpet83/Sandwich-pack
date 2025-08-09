@@ -1,0 +1,1159 @@
+<python file_id="11" mod_time="2025-08-09 15:31:43Z" relevance="0">
+# /lib/python_block.py, updated 2025-08-08 15:27 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import re
+import os
+import logging
+import traceback
+from pathlib import Path
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.sandwich_pack import SandwichPack
+from lib.entity_parser import EntityParser, match_value
+from lib.deps_builder import DepsParser
+from lib.iter_regex import IterativeRegex
+
+
+BASE_REGEX_PATTERN = r"^(?P<indent>[ \t]*)(?P<spec>@classmethod\s+|@staticmethod\s+)?(?:@[\w\s()]+)?(?P<async>async\s+)?"
+FN_REGEX_PATTERN = r"def\s+(?P<name>\w+)"
+CLASS_REGEX_PATTERN = r"class\s+(?P<name>\w+)"
+
+
+class ClassParser(EntityParser):
+    """Parser for Python classes."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(BASE_REGEX_PATTERN + CLASS_REGEX_PATTERN, ["indent", "spec", "async", "name"], 2)
+        outer_regex.add_token(r"\s*\((?P<parent>\w+)\)", ["parent"], 1)
+        outer_regex.add_token(r"\s*:", ["head_end"], 1)
+        super().__init__(entity_type, owner, outer_regex, r"\bclass\b", default_visibility="public")
+
+    def parse(self):
+        content = self.owner.get_clean_content()
+        for base_match in self.outer_regex.all_matches(content):
+            start_pos = base_match.start()
+            start_line = self.owner.find_line(start_pos)
+            validation = self.outer_regex.validate_match(content, start_pos)
+            if validation['hit_rate'] < 0.5:
+                logging.debug(f"Skipping low hit_rate {validation['hit_rate']} for match at {start_line}")
+                continue
+            match = validation['match']
+            if not match:
+                continue
+            name = match.group('name')
+            vis = "public" if not name.startswith('_') else "private" if name.startswith('__') else "protected"
+            full_text = self.owner.extract_entity_text(match.start(), match.end())
+            parent = match_value(match, 'parent', '')
+            indent = match_value(match, 'indent', '')
+            extra_fields = {"indent": len(indent), "parent": parent}
+            self.make_add_entity(self.entity_type, self.owner.module_prefix + name, vis, start_line, full_text, extra_fields)
+        return True
+
+
+class FunctionParser(EntityParser):
+    """Parser for Python functions and methods."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(BASE_REGEX_PATTERN + FN_REGEX_PATTERN, ["indent", "spec", "async", "name"], 2)
+        outer_regex.add_token(r"\s*\([^)]*\)\s*", ["args"], 1)
+        outer_regex.add_token(r"(?::\s*[\w\s\[\],]+)?\s*:", ["return"], 1)
+        super().__init__(entity_type, owner, outer_regex, r"\bdef\b", default_visibility="public")
+
+    def _format_entity_name(self, match):
+        return match.group('name')
+
+    def parse(self):
+        content = self.owner.get_clean_content()
+        for base_match in self.outer_regex.all_matches(content):
+            start_pos = base_match.start()
+            start_line = self.owner.find_line(start_pos)
+            validation = self.outer_regex.validate_match(content, start_pos)
+            if validation['hit_rate'] < 0.5:
+                logging.debug(f"Skipping low hit_rate {validation['hit_rate']} for match at {start_line}")
+                continue
+            match = validation['match']
+            if not match:
+                continue
+            name = self._format_entity_name(match)
+            indent = len(match.group('indent'))
+            vis = "public" if not name.startswith('_') else "private" if name.startswith('__') else "protected"
+            spec = match.group('spec') or ""
+            entity_type = self.entity_type
+            parent = ""
+            for line_num in range(start_line - 1, 0, -1):
+                line = self.owner.clean_lines[line_num]
+                if not isinstance(line, str) or not line.strip():
+                    continue
+                line_indent = len(line) - len(line.lstrip())
+                if line_indent < indent:
+                    line = line.strip()
+                    if line.startswith('class '):
+                        parent = line.split('class ')[1].split('(')[0].split(':')[0].strip()  # TODO: may be changed to regex
+                        entity_type = "class method" if spec == "@classmethod" else "static method" if spec == "@staticmethod" else "method"
+                    elif line.startswith('def '):
+                        entity_type = 'local_function'
+                    break
+            if self.owner.include_decorators and spec:
+                for i in range(start_line - 1, 0, -1):
+                    if self.owner.clean_lines[i].strip().startswith('@'):
+                        start_line = i
+                        break
+            full_text = self.owner.extract_entity_text(match.start(), match.end())
+            extra_fields = {"indent": indent, "parent": parent}
+            self.make_add_entity(entity_type, self.owner.module_prefix + name, vis, start_line, full_text, extra_fields)
+        return True
+
+
+class DepsParserPython(DepsParser):
+    """Parser for Python imports."""
+    def __init__(self, owner):
+        super().__init__(owner, None)
+
+    def parse(self):
+        clean_content = self.owner.get_clean_content()
+        import_regex = re.compile(
+            r"^(?P<indent>[ \t]*)(?:from\s+([\w.]+)\s+import\s+([\w,\s]+)|import\s+(\w+))\s*$",
+            re.MULTILINE
+        )
+        for match in import_regex.finditer(clean_content):
+            module = match.group(2) or match.group(4)
+            if module:
+                self.add_module(module)
+                logging.debug(f"Found module: {module}")
+            items = match.group(3)
+            if items:
+                imports = [item.strip() for item in items.split(",") if item.strip()]
+                for item in imports:
+                    self.add_import(module, item)
+        return True
+
+
+class ContentCodePython(ContentBlock):
+    """Parser for Python content blocks."""
+    supported_types = [".py"]
+
+    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, include_decorators: bool = False, **kwargs):
+        super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
+        self.tag = "python"
+        self.include_decorators = include_decorators
+        self.open_ml_string = ['"""', "'''"]
+        self.close_ml_string = ['"""', "'''"]
+        self.open_sl_comment = ["#"]
+        self.open_ml_comment = ['"""', "'''"]
+        self.close_ml_comment = ['"""', "'''"]
+        self.entity_map = {}
+        self.module_prefix = kwargs.get("module_prefix", "")
+        logging.debug(f"Initialized ContentCodePython with tag={self.tag}, file_name={file_name}, module_prefix={self.module_prefix}, include_decorators={include_decorators}")
+
+    def detect_bounds(self, start_line, clean_lines):
+        """Detects the start and end line of an entity using indentation levels.
+
+        Args:
+            start_line (int): Initial line number of the entity header.
+            clean_lines (list): List of cleaned lines.
+
+        Returns:
+            tuple: (start_line, last_line) of the entity.
+        """
+        if start_line < 1 or start_line >= len(clean_lines) or not clean_lines[start_line] or not clean_lines[start_line].strip():
+            logging.error(f"DETECT_BOUNDS: Invalid start line {start_line} for file {self.file_name} module [{self.module_prefix}]")
+            return start_line, start_line
+
+        # Search for the line ending with a colon (:) within 8 lines from start_line
+        header_last_line = start_line
+        for i in range(start_line, min(start_line + 8, len(clean_lines))):
+            line = clean_lines[i]
+            if not isinstance(line, str) or not line.strip():
+                continue
+            if line.strip().endswith(':'):
+                header_last_line = i
+                break
+
+        line = clean_lines[header_last_line]
+        indent = len(line) - len(line.lstrip())
+        line_num = header_last_line
+        last_line = header_last_line
+        while line_num < len(clean_lines):
+            line = clean_lines[line_num]
+            if not isinstance(line, str) or not line.strip():
+                line_num += 1
+                continue
+            line_indent = len(line) - len(line.lstrip())
+            for other_entity in self.entity_map.values():
+                if other_entity["first_line"] == line_num and other_entity["indent"] <= indent:
+                    return header_last_line, last_line
+            if line_indent <= indent and line_num > header_last_line:
+                logging.debug(f"DETECT_BOUNDS: new indent {line_indent} <= {indent} at @{line_num}")
+                return header_last_line, last_line
+            if line_indent > indent:
+                last_line = line_num
+            line_num += 1
+        return header_last_line, last_line
+
+    def parse_content(self, clean_lines=None, depth=0):
+        """Parses Python content to extract entities and dependencies."""
+        logging.debug(f"Parsing content at depth {depth} for file {self.file_name}")
+        if depth >= 2:
+            self.parse_warn(f"Maximum recursion depth reached for file {self.file_name}")
+            return {"entities": [], "dependencies": {"modules": [], "imports": {}}}
+        self.entity_map = {}
+        self.dependencies = {"modules": [], "imports": {}}
+        self.clean_lines = clean_lines if clean_lines is not None else ([""] + self.content_text.splitlines())
+        self.strip_strings()
+        self.strip_comments()
+
+        parsers = [
+            ClassParser("class", self),
+            FunctionParser("function", self),
+            DepsParserPython(self)
+        ]
+        self.parsers = parsers
+
+        original_clean_lines = self.clean_lines.copy()
+        for parser in parsers:
+            try:
+                self.clean_lines = original_clean_lines.copy()
+                if parser.parse():
+                    self.extend_deps(parser)
+                    self.clean_lines = parser.masquerade()
+                    logging.debug(f"Applied {parser.__class__.__name__} parser, new clean_lines[1:10]: {self.clean_lines[1:10]}")
+            except Exception as e:
+                logging.error(f"Error in {parser.__class__.__name__} parser for {self.file_name}: {str(e)}")
+                traceback.print_exc()
+                break
+
+        self.clean_lines = original_clean_lines
+        entities = self.sorted_entities()
+        logging.debug(f"Parsed {len(entities)} entities in {self.file_name}")
+        return {"entities": entities, "dependencies": self.dependencies}
+
+
+SandwichPack.register_block_class(ContentCodePython)
+</python>
+<python file_id="12" mod_time="2025-08-08 15:08:42Z" relevance="0">
+# /lib/rust_block.py, updated 2025-08-08 12:29 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import re
+import os
+import logging
+import traceback
+from pathlib import Path
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.sandwich_pack import SandwichPack
+from lib.entity_parser import EntityParser, match_value
+from lib.deps_builder import DepsParser
+from lib.iter_regex import IterativeRegex
+
+
+BASE_REGEX_PATTERN = r"^(?:#\[(?P<spec>.*)?\]\s*)?(?P<indent>[ \t]*)(?P<vis>pub\s+)?"
+FN_REGEX_PATTERN = r"(?P<async>async\s+)?fn\s+(?P<name>\w+)"
+ARGS_REGEX_PATTERN = r"\s*\((?P<args>([^;^\{]+)\)?)\s*"
+RET_REGEX_PATTERN = r"(?:->\s*(?P<return>[^;^\{]+))?"
+
+
+class ModuleParser(EntityParser):
+    """Parser for Rust modules with recursive parsing."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(BASE_REGEX_PATTERN + r"mod\s+(?P<name>\w+)", ["indent", "vis", "name"], 2)
+        outer_regex.add_token(r"\s*{", ["head_end"], 1)
+        super().__init__(entity_type, owner, outer_regex, r"\bmod\b", default_visibility="private")
+
+    def _process_match(self, match):
+        """Process a module match and perform recursive parsing."""
+        start_pos = match.start('name')
+        start_line = self.owner.find_line(start_pos)
+        module_name = match.group('name')
+        vis = "public" if match.groupdict().get('vis') else "private"
+        name_final = f"{self.owner.module_prefix}{module_name}"
+        full_text = self.owner.extract_entity_text(match.start(), match.end())
+        logging.debug(f"Processing module {name_final} at line {start_line}, text: {full_text!r}")
+        if not self.make_add_entity(self.entity_type, name_final, vis, start_line, full_text, {"parent": ""}):
+            return False
+
+        module_lines = self.owner.extract_entity_text(match.start(), match.end()).splitlines()
+        module_size = len(module_lines)
+        sub_clean_lines = self.owner.clean_lines.copy()
+        end_line = start_line + module_size
+        for i in range(0, len(sub_clean_lines)):
+            if i < start_line + 1 or i > end_line - 1:
+                sub_clean_lines[i] = f"// ext. line #{i}"
+        masked_content = "\n".join(sub_clean_lines[1:])
+        sub_parser = ContentCodeRust(
+            masked_content, self.owner.content_type,
+            f"{self.owner.file_name}&{module_name}", self.owner.timestamp,
+            module_prefix=f"{self.owner.module_prefix}{module_name}."
+        )
+        sub_result = sub_parser.parse_content(sub_clean_lines, depth=1)
+        for sub_entity in sub_result["entities"]:
+            if isinstance(sub_entity, dict):
+                first_line = sub_entity['first_line']
+                if first_line in self.owner.entity_map:
+                    logging.error(f"Already exists entity {self.owner.entity_map[first_line]}, can't add {sub_entity}")
+                    continue
+                self.owner.entity_map[first_line] = sub_entity
+                self.new_entities_lines.append(first_line)
+
+        self.owner.extend_deps(sub_result["dependencies"])
+        return True
+
+
+class TraitParser(EntityParser):
+    def __init__(self, entity_type, owner):
+        self.current_struct = ""
+        outer_regex = IterativeRegex()
+        outer_regex\
+            .add_token(BASE_REGEX_PATTERN + r"trait\s+(?P<name>\w+)", ["indent", "vis", "name"], 2)\
+            .add_token(r"(?:\:\s*(?P<parent>[\+\w\s]+))?", ["parent"], 1)\
+            .add_token(r"\s*{", ["head_end"], 1)
+        inner_regex = IterativeRegex()   # abstract method
+        inner_regex\
+            .add_token(BASE_REGEX_PATTERN + FN_REGEX_PATTERN, ["indent", "vis", "async", "name"], 2)\
+            .add_token(ARGS_REGEX_PATTERN, ["args"], 1)\
+            .add_token(RET_REGEX_PATTERN, ["return"], 1)\
+            .add_token(r";", ["head_end"], 1)
+        super().__init__(entity_type, owner, outer_regex, r"\btrait\b|\bfn\b", inner_regex, default_visibility="private"),
+
+
+class TraitImplParser(EntityParser):
+    """Parser for Rust trait implementations and their methods."""
+    def __init__(self, entity_type, owner):
+        self.current_struct = ""
+        outer_regex = IterativeRegex()
+        # possible very simple impl definition, without "for Struct"
+        outer_regex\
+            .add_token(BASE_REGEX_PATTERN + r"impl\s+(?P<name>\w+)", ["indent", "vis", "name"], 2)\
+            .add_token(r"\s+(?:for\s+(?P<struct_name>\w+))?", ["struct_name"], 1)\
+            .add_token(r"\s*{", ["head_end"], 1)
+        inner_regex = IterativeRegex()
+        inner_regex\
+            .add_token(BASE_REGEX_PATTERN + FN_REGEX_PATTERN, ["indent", "vis", "async", "name"], 2)\
+            .add_token(ARGS_REGEX_PATTERN, ["args"], 1)\
+            .add_token(RET_REGEX_PATTERN, ["return"], 1)\
+            .add_token(r"{", ["head_end"], 1)
+        super().__init__(entity_type, owner, outer_regex, r"\bimpl\b|\bfn\b", inner_regex, default_visibility="private")
+
+    def _format_entity_name(self, match):
+        name = match.group("name")
+        struct_name = match.group('struct_name')
+        if struct_name is not None:
+            return f"{self.owner.module_prefix}{name}<{struct_name}>"
+        return name
+
+
+class FunctionParser(EntityParser):
+    """Parser for Rust functions."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(BASE_REGEX_PATTERN + r"(?P<async>async\s+)?fn\s+(?P<name>\w+)", ["indent", "vis", "async", "name"], 2)\
+            .add_token(ARGS_REGEX_PATTERN, ["args"], 1)\
+            .add_token(RET_REGEX_PATTERN, ["return"], 1)\
+            .add_token(r"{", ["head_end"], 1)
+        super().__init__(entity_type, owner, outer_regex, r"\bfn\b", default_visibility="private")
+
+
+class DepsParserRust(DepsParser):
+    """Parser for Rust imports."""
+    def __init__(self, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(
+            r"^(?P<indent>[ \t]*)use\s+(?:crate::{)?(?P<imports>([^;]+))?",
+            ["indent", "imports"], 2
+        ).add_token(
+            ';', ['head_end'], 1
+        )
+        inner_regex = IterativeRegex()
+        inner_regex.add_token(
+            r"\s*(?P<module>[\w:]+)\s*", ["module"], 2
+        ).add_token(
+            r"(?:{\s*(?P<items>[^}]+)})?", ["items"], 1
+        ).add_token(
+            r"(?:,|$)", ["breaker"], 1
+        )
+        super().__init__(owner, outer_regex)
+        # "^[ \t]*use[ \t]+",\
+        self.inner_regex = inner_regex
+
+    def process_imports(self, imports, parent_module=''):
+        if len(imports) < 3:
+            return False
+        limit = imports.find(';')
+        if limit > 0:
+            imports = imports[:limit]  # always need cutout between use and ;
+        modules = self.inner_regex.all_matches(imports)
+        for module in modules:  # single line use xx::yy
+            validation = self.inner_regex.validate_match(imports, module.start())
+            logging.debug(f" checking modules import from: `{module.group(0)}`")
+            if validation['hit_rate'] < 0.1:
+                logging.warning(" hit_rate too small")
+                continue
+            inner_match = validation['match']
+            items = match_value(inner_match, 'items')
+            mod_chain = match_value(inner_match, 'module', '').strip(':')
+            if parent_module:
+                mod_chain = parent_module + "::" + mod_chain
+
+            if items:
+                logging.debug(f" detected multiply items: {items} in {mod_chain}")
+                if "::" in items:
+                    logging.debug(" recursion processing scan...")
+                    return self.process_imports(items, mod_chain)
+                elif mod_chain:
+                    self.add_module(mod_chain)
+                    for ent_name in items.split(','):
+                        self.add_import(mod_chain, ent_name.strip())
+                return True
+
+            elif mod_chain:
+                logging.debug(f"Single line import detected: {mod_chain}")
+                chain = mod_chain.split('::')
+                name = chain.pop()
+                module = '::'.join(chain)
+                self.add_module(module)
+                self.add_import(module, name)
+            return True
+        return False
+
+    def _process_match(self, match):
+        """Process a 'use' statement to add modules and imports."""
+        imports = match.group('imports')  # e.g., async_trait, chrono, crate
+        if not imports:
+            logging.warning(f"No `imports` match in group at {match.start()}, detected crate?")
+            return False
+        logging.debug(f"Global processing imports:\n {imports}")
+        for line in imports.splitlines():
+            self.process_imports(line.strip())
+        return True
+
+
+
+
+class ContentCodeRust(ContentBlock):
+    """Parser for Rust content blocks."""
+    supported_types = [".rs"]
+
+    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
+        super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
+        self.tag = "rustc"
+        self.entity_map = {}
+        self.string_quote_chars = "\""  # одинарные кавычки для символов, их затирать нет смысла
+        self.raw_str_prefix = "r"
+        self.open_ml_string = ["r#\""]
+        self.close_ml_string = ["\"#"]
+        self.module_prefix = kwargs.get("module_prefix", "")
+        logging.debug(f"Initialized ContentCodeRust with tag={self.tag}, file_name={file_name}, module_prefix={self.module_prefix}")
+
+    def check_lines_match(self, offset, full_clean_lines):
+        """Validates that clean_lines matches full_clean_lines at the given offset."""
+        if offset < 1 or offset >= len(self.clean_lines):
+            logging.error(f"Invalid offset {offset} for file {self.file_name}")
+            return False
+        for i, line in enumerate(self.clean_lines[offset:], offset):
+            if i >= len(full_clean_lines):
+                return False
+            if not isinstance(line, str) or not isinstance(full_clean_lines[i], str):
+                continue
+            if line.strip() and full_clean_lines[i].strip() and line != full_clean_lines[i]:
+                logging.warning(f"Line mismatch at {i}: expected '{full_clean_lines[i]}', got '{line}'")
+                return False
+        return True
+
+    def count_chars(self, line_num, ch, clean_lines=None):
+        """Counts occurrences of a character in a specific line of clean code."""
+        clean_lines = clean_lines or self.clean_lines
+        if line_num < 1 or line_num >= len(clean_lines):
+            logging.error(f"Invalid line number {line_num} for file {self.file_name}")
+            return 0
+        line = clean_lines[line_num]
+        if not isinstance(line, str):
+            return 0
+        return line.count(ch)
+
+    def parse_content(self, clean_lines=None, depth=0):
+        """Parses Rust content to extract entities and dependencies."""
+        logging.debug(f"Parsing content at depth {depth} for file {self.file_name}")
+        if depth >= 2:
+            self.parse_warn(f"Maximum recursion depth reached for file {self.file_name}")
+            return {"entities": [], "dependencies": {"modules": [], "imports": {}}}
+        self.entity_map = {}
+        self.clean_lines = clean_lines if clean_lines is not None else ([""] + self.content_text.splitlines())
+        self.strip_strings()
+        self.strip_comments()
+
+        struct_regex = IterativeRegex()
+        struct_regex\
+            .add_token(BASE_REGEX_PATTERN + r"struct\s+(?P<name>\w+)", ["indent", "vis", "name"], 2)\
+            .add_token(r"(?:<.*?>)?\s*{", ["head_end"], 1)
+
+        parsers = [
+            DepsParserRust(self),
+            ModuleParser("module", self),
+            EntityParser("structure", self, struct_regex, r"\bstruct\b", default_visibility="private"),
+            TraitParser("interface", self),
+            TraitImplParser("class", self),
+            FunctionParser("function", self)
+        ]
+        # Initialize structure and interface regexes
+
+        for parser in parsers:
+            try:
+                if parser.parse():
+                    self.extend_deps(parser)
+                    self.clean_lines = parser.masquerade()
+                    
+            except Exception as e:
+                logging.error(f"Error in {parser.__class__.__name__} parser for {self.file_name}: {str(e)}")
+                traceback.print_exc()
+                break
+
+        entities = self.sorted_entities()
+        logging.debug(f"Parsed {len(entities)} entities in {self.file_name}")
+        return {"entities": entities, "dependencies": self.dependencies}
+
+
+SandwichPack.register_block_class(ContentCodeRust)
+</python>
+<python file_id="13" mod_time="2025-08-08 06:09:47Z" relevance="0">
+# /lib/sandwich_pack.py, updated 2025-08-05 16:00 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import hashlib
+import importlib.util
+import os
+import re
+import logging
+import datetime
+import json
+import math
+import traceback
+from pathlib import Path
+from .content_block import ContentBlock, estimate_tokens
+from .deps_builder import organize_modules
+
+
+def compute_md5(content: str) -> str:
+    return hashlib.md5(content.encode("utf-8")).hexdigest()
+
+
+class SandwichPack:
+    _block_classes = []
+
+    def __init__(self, project_name: str, max_size: int = 42_000, token_limit=131_000, system_prompt=None, compression=False):
+        self.project_name = project_name
+        self.max_size = max_size
+        self.token_limit = token_limit
+        self.entity_rev_map = {}
+        self.system_prompt = system_prompt
+        self.compression = compression
+        self.datasheet = {
+            "project_root": "/app",
+            "backend_address": "http://localhost:8080",
+            "frontend_address": "http://vps.vpn:8008",
+            "resources": {
+                "database": "sqlite:///app/data/multichat.db",
+                "log_file": "/app/logs/colloquium_core.log"
+            }
+        }
+        self.busy_ids = set()
+
+    @classmethod
+    def register_block_class(cls, block_class):
+        logging.debug(f"Registering block class: {block_class.__name__}")
+        cls._block_classes.append(block_class)
+
+    @classmethod
+    def load_block_classes(cls):
+        for module in Path(__file__).parent.glob("*_block.py"):
+            module_name = module.stem
+            if module_name == "content_block":
+                continue
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, module)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                logging.debug(f"Loaded module: {module_name}")
+            except Exception as e:
+                logging.error(f"Failed to load module {module_name}: {str(e)}")
+                stack = traceback.format_exception(type(e), e, e.__traceback__)
+                logging.info(f"TRACEBACK: " + ''.join(stack))
+        return cls._block_classes
+
+    @classmethod
+    def supported_type(cls, content_type: str) -> bool:
+        for block_class in cls._block_classes:
+            if content_type in block_class.supported_types:
+                logging.debug(f"Supported content_type={content_type} by {block_class.__name__}")
+                return True
+        logging.debug(f"Content_type={content_type} falls back to ContentBlock")
+        return content_type in ContentBlock.supported_types
+
+    @classmethod
+    def create_block(cls, content_text: str, content_type: str, file_name=None,
+                    timestamp=None, **kwargs) -> ContentBlock:
+        for block_class in cls._block_classes:
+            if content_type in block_class.supported_types:
+                logging.debug(f"Creating block with {block_class.__name__} for content_type={content_type}")
+                return block_class(content_text, content_type, file_name, timestamp, **kwargs)
+        logging.debug(f"Creating default ContentBlock for content_type={content_type}")
+        return ContentBlock(content_text, content_type, file_name, timestamp, **kwargs)
+
+    def generate_unique_file_id(self) -> int:
+        file_id = 0
+        while file_id in self.busy_ids:
+            file_id += 1
+        self.busy_ids.add(file_id)
+        logging.debug(f"Generated unique file_id={file_id}")
+        return file_id
+
+    def find_entity(self, e_type: str, e_name: str, file_id=None):
+        key = (file_id, e_type, e_name) if file_id is not None else (None, e_type, e_name)
+        return self.entity_rev_map.get(key, -1)
+
+    def pack(self, blocks, users=None) -> dict:
+        """Packs content blocks into sandwiches with an index including entity boundaries."""
+        try:
+            self.busy_ids.clear()
+            file_map = {}
+            file_list = []
+            entity_stor = {}
+            entities_list = []
+            name_to_locations = {}
+            module_map = {}
+            module_list = []
+            parsed_blocks = []
+            file_blocks = 0
+
+            for block in blocks:
+                if block.content_type != ":post" and block.file_id is not None:
+                    self.busy_ids.add(block.file_id)
+                    file_blocks += 1
+
+            logging.debug(f"Pack started: input {len(blocks)} included {file_blocks} files blocks")
+
+            for block in blocks:
+                if block.content_type != ":post" and block.file_name:
+                    # file_id - четко указывает на ссылку файла из БД, он привязан к блоку намертво
+                    file_id = block.file_id if block.file_id is not None else self.generate_unique_file_id()
+                    file_map[block.file_name] = file_id
+                    block.file_id = file_id
+                    file_list.append(
+                        f"{file_id},{block.file_name},{compute_md5(block.to_sandwich_block())}," +
+                        f"{block.tokens},{block.timestamp}"
+                    )
+                block.strip_strings()
+                block.strip_comments()
+                parsed = block.parse_content()
+                parsed_blocks.append((block, parsed))
+                if block.file_name and parsed["entities"]:
+                    for ent in parsed["entities"]:
+                        name = ent['name']
+                        file_id = block.file_id or file_map.get(block.file_name)
+                        if "first_line" not in ent or "last_line" not in ent:
+                            logging.warning(
+                                f"Entity {name} in file {block.file_name} missing first_line or last_line"
+                            )
+                            continue
+                        key = (block.file_name, ent["type"], name)
+                        if key not in entity_stor:
+                            entity_stor[key] = len(entities_list)  # global index of entity
+                            vis_short = "pub" if ent["visibility"] == "public" else "prv"
+                            e_type = ent["type"]
+                            name_to_locations.setdefault(name, []).append((block.file_name, e_type))
+                            start_line = ent["first_line"]
+                            end_line = ent["last_line"]
+                            parent = ent.get("parent", "")
+                            entities_list.append(
+                                f"{vis_short},{e_type},{parent},{name},{file_id},{start_line}-{end_line},{ent['tokens']}"
+                            )
+                            self.entity_rev_map[(file_id, ent["type"], name)] = len(entities_list) - 1
+
+                for module in parsed["dependencies"]["modules"]:
+                    if module not in module_map:
+                        module_map[module] = len(module_list)
+                        module_list.append(module)
+
+            #  список файлов и блоков упорядочивается по зависимостям, порядок file_id предполагаемо станет хаотичным
+            # sorted_files, blocks = organize_modules(file_list, [b[0] for b in parsed_blocks])
+
+            current_size = 0
+            current_tokens = 0
+            current_content = []
+            current_index = []
+            current_sw_index = 1
+            sandwiches = []
+            global_index = {
+                "packer_version": "0.6",
+                "context_date": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
+                "templates": {
+                    "filelist": "file_id,file_name,md5,tokens,timestamp",
+                    "users": "user_id,username,role",
+                    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens"
+                },
+                "project_name": self.project_name,
+                "datasheet": self.datasheet,
+                "entities": entities_list,
+                "files": file_list,
+                "users": users or []
+            }
+
+            deep_index = {
+                "templates": {
+                    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens",
+                    "modules": "module_name"
+                },
+                "dep_format": (
+                    "modules: index (int) referencing modules list; " +
+                    "imports: tuple (file_id, entity_name) referencing entities list"
+                ),
+                "modules": module_list,
+                "sandwiches": []
+            }
+
+            current_line = 1
+            processed = 0
+            total_blocks = len(parsed_blocks)
+            for block, parsed in parsed_blocks:
+                logging.debug(f" ================= PROCESSING BLOCK type {block.content_type}, file_id {block.file_id} ==================== ")
+                if self.compression:
+                    block.compress(self.entity_rev_map, file_map)
+                block_str = block.to_sandwich_block()
+                block_size = len(block_str.encode("utf-8"))
+                block_tokens = block.tokens
+                block_lines = block_str.count("\n") + 1
+                processed += 1
+                target_size = current_size + block_size
+                target_tks = current_tokens + block_tokens
+
+                if target_size > self.max_size or target_tks > self.token_limit:
+                    logging.debug(f"Sandwich #{current_sw_index} reached maximum size, target_size = {target_size}, target_tks = {target_tks} storing and creating new")
+                    sandwiches.append("".join(current_content))
+                    deep_index["sandwiches"].append({
+                        "file": f"sandwich_{current_sw_index}.txt",
+                        "blocks": current_index
+                    })
+                    current_size = 0
+                    current_sw_index += 1
+                    current_content = []
+                    current_index = []
+                    current_tokens = 0
+                    current_line = 1
+
+                block_data = {
+                    "start_line": current_line
+                }
+                if block.content_type == ":post":
+                    block_data["post_id"] = block.post_id
+                elif block.file_id is not None:
+                    block_data["file_id"] = block.file_id
+                if parsed.get('modules'):
+                    block_data["modules"] = [module_map[module] for module in parsed["modules"]]
+                if parsed.get('imports'):
+                    block_data["imports"] = []
+                    for ent_name, mod_name in parsed["imports"].items():
+                        mod_path = f"/{mod_name.replace('.', '/')}.py" if mod_name.startswith('lib.') else f"/tests/{mod_name}.py"
+                        mod_file_id = file_map.get(mod_path)
+                        for ent_type in ("function", "interface", "class", "struct", "method", "module", "component", "object"):
+                            idx = self.find_entity(ent_type, ent_name, mod_file_id)
+                            if idx >= 0:
+                                block_data["imports"].append((mod_file_id, ent_name))
+                                break
+                        else:
+                            if block.file_name and "/tests/" in block.file_name:
+                                block_data["imports"].append((mod_file_id, ent_name))
+                    block_data["imports"].sort()
+                if block.file_name and parsed["entities"]:
+                    ent_uids = [entity_stor[(block.file_name, e["type"], e["name"])] for e in parsed["entities"]]
+                    block_data["entities"] = sorted(ent_uids)
+                current_content.append(block_str + "\n")
+                current_index.append(block_data)
+                current_size += block_size
+                current_tokens += block_tokens
+                current_line += block_lines
+
+            if current_content:
+                sandwiches.append("".join(current_content))
+                deep_index["sandwiches"].append({
+                    "file": f"sandwich_{current_sw_index}.txt",
+                    "blocks": current_index
+                })
+
+            logging.debug(f" Processed {processed} / {total_blocks} blocks, packing complete")
+
+            return {
+                "index": json.dumps(global_index, indent=2),
+                "deep_index": json.dumps(deep_index, indent=2),
+                "sandwiches": sandwiches
+            }
+        except Exception as e:
+            logging.error(f"#ERROR: Failed to pack blocks: {str(e)}")
+            traceback.print_exc()
+            raise
+</python>
+<python file_id="14" mod_time="2025-08-09 15:21:01Z" relevance="0">
+# /lib/shellscript_block.py, updated 2025-08-08 18:30 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import re
+import os
+import logging
+import traceback
+from pathlib import Path
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.sandwich_pack import SandwichPack
+from lib.entity_parser import EntityParser
+from lib.deps_builder import DepsParser
+from lib.iter_regex import IterativeRegex
+
+
+class FunctionParser(EntityParser):
+    """Parser for Shell script functions."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(
+            r"^(?P<indent>\s*)(?:function\s+)?(?P<name>\w+)\s*\(\)", ["indent", "name"], 2
+        ).add_token(
+            r"\s*{", ["head_end"], 1
+        )
+        super().__init__(entity_type, owner, outer_regex, r"\bfunction\b", default_visibility="private")
+
+    def parse(self):
+        content = self.owner.get_clean_content()
+        matches = list(self.outer_regex.all_matches(content))
+        exported_functions = set()
+        export_regex = IterativeRegex()
+        export_regex.add_token(r"^\s*export\s+-f\s+(?P<name>\w+)", ["name"], 1)
+        for match in export_regex.all_matches(self.owner.content_text):
+            validation = export_regex.validate_match(self.owner.content_text, match.start())
+            if validation['hit_rate'] >= 0.5 and validation['match']:
+                exported_functions.add(validation['match'].group('name'))
+
+        for match in matches:
+            fn_name = match.group('name')
+            vis = "public" if fn_name in exported_functions else self.default_visibility
+            start_pos = match.start('name')
+            start_line = self.owner.find_line(start_pos)
+            full_text = self.owner.extract_entity_text(start_pos, match.end())
+            self.make_add_entity(self.entity_type, fn_name, vis, start_line, full_text)
+        return True
+
+
+class DepsParserShell(DepsParser):
+    """Parser for Shell script dependencies."""
+    def __init__(self, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(r"^\s*(?:\.|source|\./)\s+(?P<script>[^\s]+)", ["script"], 1)
+        super().__init__(owner, outer_regex)
+
+    def _process_match(self, match):
+        script = match.group('script')
+        if script:
+            script_path = f"{Path(self.owner.file_name).parent}/{script}".replace("\\", "/")
+            if not script_path.startswith("/"):
+                script_path = f"/{script_path}"
+            self.add_module(script_path)
+
+
+class ContentShellScript(ContentBlock):
+    """Parser for Shell script content blocks."""
+    supported_types = [".sh"]
+
+    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
+        super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
+        self.tag = "shell"
+        self.entity_map = {}
+        self.open_sl_comment = ["#"]
+        logging.debug(f"Initialized ContentShellScript with tag={self.tag}, file_name={file_name}")
+
+    def parse_content(self, clean_lines=None, depth=0):
+        """Parses shell script content to extract entities and dependencies."""
+        logging.debug(f"Parsing content at depth {depth} for file {self.file_name}")
+        if depth >= 2:
+            self.parse_warn(f"Maximum recursion depth reached for file {self.file_name}")
+            return {"entities": [], "dependencies": {"modules": [], "imports": {}}}
+        self.entity_map = {}
+        self.dependencies = {"modules": [], "imports": {}}
+        self.clean_lines = clean_lines if clean_lines is not None else ([""] + self.content_text.splitlines())
+        self.strip_strings()
+        self.strip_comments()
+
+        parsers = [FunctionParser("function", self), DepsParserShell(self)]
+        original_clean_lines = self.clean_lines.copy()
+        for parser in parsers:
+            try:
+                self.clean_lines = original_clean_lines.copy()
+                if parser.parse():
+                    self.extend_deps(parser)
+                    self.clean_lines = parser.masquerade()
+                    logging.debug(f"Applied {parser.__class__.__name__} parser, new clean_lines[1:10]: {self.clean_lines[1:10]}")
+            except Exception as e:
+                logging.error(f"Error in {parser.__class__.__name__} parser for {self.file_name}: {str(e)}")
+                traceback.print_exc()
+                break
+
+        self.clean_lines = original_clean_lines
+        entities = self.sorted_entities()
+        logging.debug(f"Parsed {len(entities)} entities in {self.file_name}")
+        return {"entities": entities, "dependencies": self.dependencies}
+
+
+SandwichPack.register_block_class(ContentShellScript)
+</python>
+
+INDEX_COPY:
+{
+  "packer_version": "0.6",
+  "context_date": "2025-08-09 16:40:12Z",
+  "templates": {
+    "filelist": "file_id,file_name,md5,tokens,timestamp",
+    "users": "user_id,username,role",
+    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens"
+  },
+  "project_name": "sandwich_pack",
+  "datasheet": {
+    "project_root": "/app",
+    "backend_address": "http://localhost:8080",
+    "frontend_address": "http://vps.vpn:8008",
+    "resources": {
+      "database": "sqlite:///app/data/multichat.db",
+      "log_file": "/app/logs/colloquium_core.log"
+    }
+  },
+  "entities": [
+    "pub,function,,get_file_mod_time,0,11-14,54",
+    "pub,function,,is_hidden_file,0,16-17,30",
+    "pub,function,,collect_files,0,19-71,493",
+    "pub,function,,main,0,73-106,333",
+    "pub,function,,verify_sandwiches,1,14-75,486",
+    "pub,class,ABC,CodeStripper,2,10-104,878",
+    "prv,method,CodeStripper,__init__,2,12-19,68",
+    "pub,method,CodeStripper,detect_single,2,21-24,36",
+    "pub,method,CodeStripper,detect_multi_open,2,26-29,24",
+    "pub,method,CodeStripper,detect_multi_close,2,31-34,37",
+    "pub,method,CodeStripper,strip,2,36-104,687",
+    "pub,class,CodeStripper,CodeStringStripper,2,106-166,740",
+    "pub,class,CodeStripper,CodeCommentStripper,2,168-198,392",
+    "pub,class,,ContentBlock,3,22-384,3724",
+    "prv,method,ContentBlock,__init__,3,25-54,360",
+    "pub,method,ContentBlock,parse_warn,3,56-59,27",
+    "pub,method,ContentBlock,strip_strings,3,61-78,175",
+    "pub,method,ContentBlock,strip_comments,3,80-94,136",
+    "pub,method,ContentBlock,save_clean,3,96-108,144",
+    "pub,method,ContentBlock,get_clean_content,3,110-121,105",
+    "pub,method,ContentBlock,find_line,3,123-130,81",
+    "pub,method,ContentBlock,count_chars,3,132-142,109",
+    "pub,method,ContentBlock,sorted_entities,3,144-152,87",
+    "pub,method,ContentBlock,detect_bounds,3,154-178,271",
+    "pub,method,ContentBlock,check_entity_placement,3,180-200,240",
+    "pub,method,ContentBlock,add_entity,3,202-217,190",
+    "pub,method,ContentBlock,extract_entity_text,3,219-228,132",
+    "pub,method,ContentBlock,extend_deps,3,230-241,118",
+    "pub,method,ContentBlock,full_text_replace,3,243-273,371",
+    "pub,method,ContentBlock,compress,3,275-360,973",
+    "pub,method,ContentBlock,to_sandwich_block,3,362-381,156",
+    "pub,method,ContentBlock,parse_content,3,383-384,30",
+    "pub,class,EntityParser,DepsParser,4,11-36,226",
+    "prv,method,DepsParser,__init__,4,13-16,58",
+    "pub,method,DepsParser,add_module,4,18-22,44",
+    "pub,method,DepsParser,add_import,4,24-28,47",
+    "pub,method,DepsParser,store_deps,4,30-36,64",
+    "pub,function,,organize_modules,4,39-100,629",
+    "pub,local_function,,dfs,4,67-77,20",
+    "pub,class,ContentBlock,DocumentBlock,5,9-30,173",
+    "prv,method,DocumentBlock,__init__,5,12-20,105",
+    "pub,method,DocumentBlock,parse_content,5,22-30,42",
+    "pub,function,,match_value,6,11-14,53",
+    "pub,function,,get_start_pos,6,17-18,53",
+    "pub,class,,EntityParser,6,21-258,2486",
+    "prv,method,EntityParser,__init__,6,24-46,340",
+    "prv,method,EntityParser,_format_entity_name,6,48-55,88",
+    "prv,method,EntityParser,_format_inner_name,6,57-58,26",
+    "pub,method,EntityParser,make_entity,6,60-90,333",
+    "pub,method,EntityParser,make_add_entity,6,92-115,273",
+    "pub,method,EntityParser,detect_abstract,6,117-121,67",
+    "pub,method,EntityParser,detect_visibility,6,123-124,32",
+    "prv,method,EntityParser,_process_match,6,126-172,470",
+    "pub,method,EntityParser,parse,6,174-191,152",
+    "pub,method,EntityParser,parse_inner,6,193-243,559",
+    "pub,method,EntityParser,masquerade,6,245-258,136",
+    "pub,class,,IterativeRegex,7,8-113,846",
+    "prv,method,IterativeRegex,__init__,7,11-14,27",
+    "pub,method,IterativeRegex,add_token,7,16-31,170",
+    "pub,method,IterativeRegex,all_matches,7,33-55,165",
+    "pub,method,IterativeRegex,validate_match,7,57-113,474",
+    "pub,class,EntityParser,ObjectParser,8,28-57,358",
+    "prv,method,ObjectParser,__init__,8,30-34,87",
+    "prv,method,ObjectParser,_format_entity_name,8,36-38,40",
+    "pub,method,ObjectParser,parse,8,40-57,218",
+    "pub,class,EntityParser,MethodParser,8,60-108,510",
+    "pub,class,EntityParser,FunctionParser,8,111-141,371",
+    "pub,class,EntityParser,InterfaceParser,8,144-151,116",
+    "pub,class,EntityParser,ClassParser,8,154-161,114",
+    "pub,class,DepsParser,DepsParserJs,8,164-188,254",
+    "prv,method,DepsParserJs,_process_match,8,174-188,152",
+    "pub,class,ContentBlock,ContentCodeJs,8,191-239,467",
+    "pub,method,ContentCodeJs,parse_content,8,204-239,325",
+    "pub,class,ContentCodeJs,ContentCodeTypeScript,8,242-288,443",
+    "pub,function,,estimate_tokens,9,7-22,138",
+    "pub,class,EntityParser,ClassParser,10,30-40,106",
+    "prv,method,ClassParser,__init__,10,32-40,93",
+    "pub,class,EntityParser,FunctionParser,10,43-46,54",
+    "pub,class,DepsParser,DepsParserPHP,10,49-68,158",
+    "prv,method,DepsParserPHP,_process_match,10,61-68,85",
+    "pub,class,ContentBlock,ContentCodePHP,10,70-150,737",
+    "pub,method,ContentCodePHP,strip_strings,10,91-105,96",
+    "pub,method,ContentCodePHP,check_raw_escape,10,108-113,111",
+    "pub,method,ContentCodePHP,parse_content,10,115-150,326",
+    "pub,class,EntityParser,ClassParser,11,21-49,397",
+    "prv,method,ClassParser,__init__,11,23-28,103",
+    "pub,method,ClassParser,parse,11,30-49,281",
+    "pub,class,EntityParser,FunctionParser,11,52-103,666",
+    "prv,method,FunctionParser,_format_entity_name,11,61-62,21",
+    "pub,class,DepsParser,DepsParserPython,11,106-127,194",
+    "pub,class,ContentBlock,ContentCodePython,11,130-227,1040",
+    "pub,method,ContentCodePython,detect_bounds,11,147-190,503",
+    "pub,method,ContentCodePython,parse_content,11,192-227,327",
+    "pub,class,EntityParser,ModuleParser,12,22-66,552",
+    "prv,method,ModuleParser,__init__,12,24-28,88",
+    "prv,method,ModuleParser,_process_match,12,30-66,451",
+    "pub,class,EntityParser,TraitParser,12,69-83,199",
+    "pub,class,EntityParser,TraitImplParser,12,86-109,261",
+    "prv,method,TraitImplParser,_format_entity_name,12,104-109,56",
+    "pub,class,EntityParser,FunctionParser,12,112-120,132",
+    "pub,class,DepsParser,DepsParserRust,12,123-194,576",
+    "pub,method,DepsParserRust,process_imports,12,145-183,365",
+    "pub,class,ContentBlock,ContentCodeRust,12,199-279,787",
+    "pub,method,ContentCodeRust,check_lines_match,12,214-227,171",
+    "pub,method,ContentCodeRust,count_chars,12,229-238,109",
+    "pub,method,ContentCodeRust,parse_content,12,240-279,343",
+    "pub,function,,compute_md5,13,18-19,28",
+    "pub,class,,SandwichPack,13,22-274,2379",
+    "prv,method,SandwichPack,__init__,13,25-41,183",
+    "pub,method,SandwichPack,register_block_class,13,43-46,32",
+    "pub,method,SandwichPack,load_block_classes,13,48-63,160",
+    "pub,method,SandwichPack,supported_type,13,65-72,84",
+    "pub,class,EntityParser,FunctionParser,14,16-45,369",
+    "prv,method,FunctionParser,__init__,14,18-25,80",
+    "pub,method,FunctionParser,parse,14,27-45,275",
+    "pub,class,DepsParser,DepsParserShell,14,48-61,127",
+    "prv,method,DepsParserShell,_process_match,14,55-61,68",
+    "pub,class,ContentBlock,ContentShellScript,14,64-104,425",
+    "pub,method,ContentShellScript,parse_content,14,75-104,306",
+    "pub,class,EntityParser,ComponentParser,15,17-39,286",
+    "prv,method,ComponentParser,__init__,15,19-22,67",
+    "pub,method,ComponentParser,parse,15,24-39,205",
+    "pub,class,ContentBlock,ContentCodeVue,15,42-91,480",
+    "pub,method,ContentCodeVue,parse_content,15,56-91,326",
+    "pub,function,,dump_entities,17,20-24,46",
+    "pub,class,,TestParsersBrief,17,27-38,103",
+    "pub,method,TestParsersBrief,setUp,17,28-29,15",
+    "pub,method,TestParsersBrief,entity_check,17,31-33,52",
+    "pub,method,TestParsersBrief,test_rust_parser,17,35-38,24",
+    "pub,function,,test_vue_parser,17,62-65,24",
+    "pub,function,,test_shell_parser,17,87-90,24",
+    "pub,function,,test_python_parser,17,107-110,25",
+    "pub,function,,test_function,17,111-112,10",
+    "pub,class,,TestClass,17,114-116,18",
+    "pub,method,TestClass,test_method,17,115-116,12",
+    "pub,function,,test_js_parser,17,130-133,24",
+    "pub,function,,test_php_parser,17,165-168,24",
+    "pub,function,,test_parse_modules,18,25-40,143",
+    "pub,function,,test_protect_modules,18,43-62,100",
+    "pub,function,,simpleFunction,19,5-7,16",
+    "pub,function,,arrowFunction,19,10-12,22",
+    "pub,function,,exprFunction,19,15-17,23",
+    "pub,object,,myObject,19,20-26,31",
+    "pub,method,myObject,myMethod,19,22-24,5",
+    "pub,method,myObject,myComputed,19,31-33,5",
+    "pub,object,,module,19,39-45,38",
+    "pub,function,,incompleteString,19,42-45,26",
+    "pub,object,,s,19,43-50,35",
+    "pub,function,,simple_function,20,6-8,17",
+    "pub,class,,MyClass,20,11-19,65",
+    "pub,method,MyClass,my_method,20,12-14,11",
+    "pub,method,MyClass,sqli,20,15-17,8",
+    "pub,abstract method,MyClass,my_abstract_method,20,18-18,12",
+    "pub,function,,last_function,20,29-30,20",
+    "pub,function,,simple_function,21,5-9,28",
+    "pub,local_function,,local_inner,21,6-7,11",
+    "pub,class,,MyClass,21,12-18,32",
+    "pub,method,MyClass,my_method,21,13-14,11",
+    "pub,method,MyClass,my_classmethod,21,16-18,12",
+    "prv,function,,simple_function,22,3-6,27",
+    "prv,function,,raw_string_function,22,9-12,30",
+    "prv,function,,comment_function,22,15-18,30",
+    "prv,function,,single_comment_function,22,21-24,20",
+    "prv,structure,,Outer,22,27-29,17",
+    "prv,structure,,Inner,22,31-33,13",
+    "prv,function,,incomplete_string,22,36-39,27",
+    "prv,interface,Send + Sync,ExampleTrait,22,42-44,34",
+    "prv,method,ExampleTrait,trait_method,22,43-50,14",
+    "prv,class,,ExampleTrait<Outer>,22,46-50,38",
+    "pub,module,,logger,22,53-57,29",
+    "prv,function,,logger.logger_function,22,54-56,19",
+    "pub,module,,extra_module,22,60-67,47",
+    "prv,structure,,extra_module.ExtraStruct,22,61-63,18",
+    "prv,function,,extra_module.extra_function,22,64-66,18",
+    "prv,class,,Inner,22,69-74,33",
+    "prv,async method,Inner,new,22,70-73,15",
+    "prv,interface,,LoadEquityData,22,86-94,78",
+    "prv,async method,LoadEquityData,load_equity_data,22,87-97,64",
+    "prv,class,,LoadEquityData<MySqlDataSource>,22,98-180,741",
+    "pub,interface,,MyInterface,23,4-6,18",
+    "pub,class,,MyClass,23,8-12,24",
+    "pub,function,,code_block,24,17-30,165",
+    "prv,function,,_scan_log,24,33-36,47",
+    "pub,class,,TestJsParse,24,39-139,991",
+    "pub,method,TestJsParse,setUp,24,40-49,129",
+    "pub,method,TestJsParse,test_parse_content,24,51-94,368",
+    "pub,method,TestJsParse,test_incomplete_cases,24,96-104,82",
+    "pub,method,TestJsParse,test_js_template_string_no_escape,24,106-121,162",
+    "pub,method,TestJsParse,test_typescript_specific,24,124-139,239",
+    "pub,function,,entity_dump,25,13-14,26",
+    "pub,function,,code_block,25,17-32,131",
+    "pub,class,,TestPhpParse,25,34-68,339",
+    "pub,method,TestPhpParse,setUp,25,35-41,75",
+    "pub,method,TestPhpParse,test_parse_content,25,43-68,253",
+    "pub,function,,code_block,26,17-30,140",
+    "pub,class,,TestPyParse,26,32-92,577",
+    "pub,method,TestPyParse,setUp,26,33-42,116",
+    "pub,method,TestPyParse,test_parse_content,26,44-92,450",
+    "pub,function,,code_block,27,17-26,65",
+    "prv,function,,_scan_log,27,29-32,47",
+    "pub,class,,TestRustParse,27,35-107,647",
+    "pub,method,TestRustParse,setUp,27,36-45,117",
+    "pub,method,TestRustParse,test_parse_content,27,47-91,378",
+    "pub,method,TestRustParse,test_rust_raw_string_no_escape,27,93-107,140"
+  ],
+  "files": [
+    "0,/spack.py,75888932e5c12e41714e582e860150fc,1416,2025-08-07 08:36:29Z",
+    "1,/spack_verify.py,36fa555d1a158aeac89f25fe455985d5,1159,2025-08-06 15:48:54Z",
+    "2,/lib/code_stripper.py,e6a65dcd56b198354c017c25b6dff95b,2851,2025-08-06 10:30:03Z",
+    "3,/lib/content_block.py,b10ee1f821550623fd1633fca4d3b4e7,5672,2025-08-08 15:21:37Z",
+    "4,/lib/deps_builder.py,99307811effa026d03af424844d50339,1203,2025-08-08 13:25:05Z",
+    "5,/lib/document_block.py,6e968595e8865f1e50c5bd452d8cce6c,328,2025-07-15 12:56:33Z",
+    "6,/lib/entity_parser.py,50993ce1b4a16ad954680eea585bd281,3441,2025-08-09 16:28:14Z",
+    "7,/lib/iter_regex.py,a40f86df51088fe4cc83f867a6006bb8,1313,2025-08-09 14:31:00Z",
+    "8,/lib/js_block.py,67a21d31c69b0ad81a7c92d99809d637,3906,2025-08-09 15:41:29Z",
+    "9,/lib/llm_tools.py,203fafd667304f7b3220e0ef5acb5218,208,2025-08-05 09:55:32Z",
+    "10,/lib/php_block.py,e1681f6a7e571aac8a6aed107bbe1085,1824,2025-08-09 16:38:40Z",
+    "11,/lib/python_block.py,d97712bc7786c74c9082b908adf197ef,3145,2025-08-09 15:31:43Z",
+    "12,/lib/rust_block.py,7c7f7b2e335a1ba1fb9b7e857d6812fd,3713,2025-08-08 15:08:42Z",
+    "13,/lib/sandwich_pack.py,a0f5aefc26ba4eb1a4f2b45a514e23a2,3304,2025-08-08 06:09:47Z",
+    "14,/lib/shellscript_block.py,5098250db40d78a1f024516a76c66acf,1400,2025-08-09 15:21:01Z",
+    "15,/lib/vue_block.py,f23a4130b724632fe047a36dcf8362c9,1302,2025-08-09 15:43:36Z",
+    "16,/lib/__init__.py,074cf55a834c54634445ffec1561efc5,20,2025-07-15 06:32:56Z",
+    "17,/tests/brief_tests.py,e6e22245ddf66bf84452ccf19c84c121,2122,2025-08-09 15:16:19Z",
+    "18,/tests/regex_imports_php.py,570e7cea2bb6495deb1a3ddeb96be304,718,2025-08-03 08:01:14Z",
+    "19,/tests/test.js,3f4fb5b0b76ccf9e32b7d0fd2fc90f63,355,2025-08-02 09:04:08Z",
+    "20,/tests/test.php,216fe13e8200d647134d45b633e5aa49,205,2025-08-06 09:54:23Z",
+    "21,/tests/test.py,e66e2fecf8c51c71fa539e202f5787ec,133,2025-08-04 09:40:17Z",
+    "22,/tests/test.rs,535d66412b561d4854d66d846b39f452,1691,2025-08-08 15:00:13Z",
+    "23,/tests/test.ts,b381efcb43350bd42bb39fb49de0a79a,81,2025-08-02 06:22:30Z",
+    "24,/tests/test_js_parse.py,cdf881a06858c32d39d834874bd389ff,1999,2025-08-02 08:08:27Z",
+    "25,/tests/test_php_parse.py,6b92921d34ff70d097997cee025fd276,855,2025-08-09 15:47:40Z",
+    "26,/tests/test_py_parse.py,74980d75b14cff997096353ba425281a,1230,2025-08-04 08:28:15Z",
+    "27,/tests/test_rust_parse.py,c4aaa2335248a4dfdce41e6c9e404de0,1294,2025-08-08 11:25:19Z"
+  ],
+  "users": []
+}

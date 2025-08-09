@@ -1,4 +1,4 @@
-# /spack.py, updated 2025-07-15 09:57 EEST
+# /spack.py, updated 2025-08-07 11:36 EEST
 import os
 import datetime
 import logging
@@ -83,21 +83,22 @@ def main():
     parser = argparse.ArgumentParser(
         prog='Sandwich Packer',
         description='Combining all project sources files into sandwich structured several text files',
-        epilog='Best for using with chatbots like Grok or ChatGPT')
+        epilog='Best for using with chatbots like Grok or ChatGPT, with expert level')
 
     parser.add_argument('project_name')
     args = parser.parse_args()
-    packer = SandwichPack(args.project_name, max_size=80_000)
+    packer = SandwichPack(args.project_name)
     result = packer.pack(files_content)
     os.makedirs(output_dir, exist_ok=True)
     for i, sandwich in enumerate(result["sandwiches"], 1):
         output_file = Path(output_dir) / f"sandwich_{i}.txt"
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write(sandwich)
+            f.write(sandwich + "\nINDEX_COPY:\n" + result["index"])
         logging.info(f"Created {output_file} ({len(sandwich.encode('utf-8'))} bytes)")
-    global_index_file = Path(output_dir) / "sandwiches_index.json"
+    global_index_file = Path(output_dir) / "sandwiches_index.jsl"
     with open(global_index_file, "w", encoding="utf-8") as f:
-        f.write(result["index"])
+        f.write(result["index"] + "STRUCTURE: " + result["deep_index"])
+
     global_index_file = Path(output_dir) / "sandwiches_structure.json"
     with open(global_index_file, "w", encoding="utf-8") as f:
         f.write(result["deep_index"])

@@ -1,0 +1,58 @@
+{
+  "entities": [
+    {
+      "type": "function",
+      "name": "simple_function",
+      "visibility": "private",
+      "file_id": 0,
+      "first_line": 5,
+      "last_line": 9,
+      "tokens": 28,
+      "indent": 0
+    },
+    {
+      "type": "local_function",
+      "name": "local_inner",
+      "visibility": "private",
+      "file_id": 0,
+      "first_line": 6,
+      "last_line": 7,
+      "tokens": 11,
+      "indent": 4
+    },
+    {
+      "type": "class",
+      "name": "MyClass",
+      "visibility": "private",
+      "file_id": 0,
+      "first_line": 12,
+      "last_line": 18,
+      "tokens": 32,
+      "indent": 0
+    },
+    {
+      "type": "method",
+      "name": "my_method",
+      "visibility": "private",
+      "file_id": 0,
+      "first_line": 13,
+      "last_line": 14,
+      "tokens": 11,
+      "indent": 4
+    },
+    {
+      "type": "method",
+      "name": "my_classmethod",
+      "visibility": "public",
+      "file_id": 0,
+      "first_line": 17,
+      "last_line": 18,
+      "tokens": 11,
+      "indent": 4
+    }
+  ],
+  "dependencies": {
+    "modules": ["my_module"],
+    "imports": {"my_import":"my_module"} 
+  }
+}

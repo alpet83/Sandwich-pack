@@ -1,0 +1,1362 @@
+<python file_id="15" mod_time="2025-08-09 15:43:36Z" relevance="0">
+# /lib/vue_block.py, updated 2025-08-08 18:45 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import re
+import os
+import logging
+import traceback
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.sandwich_pack import SandwichPack
+from lib.entity_parser import EntityParser
+from lib.deps_builder import DepsParser
+from lib.iter_regex import IterativeRegex
+from lib.js_block import MethodParser, FunctionParser, DepsParserJs
+
+METHODS_REGEX_PATTERN = r"^(?P<indent>[ \t]*)(?:methods|computed|watch)\s*:"
+
+class ComponentParser(EntityParser):
+    """Parser for Vue components."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(r"^(?P<indent>[ \t]*)(?:const\s+(?P<name>\w+)\s*=\s*)?defineComponent\s*\(\s*{", ["indent", "name"], 2)
+        super().__init__(entity_type, owner, outer_regex, r"\bdefineComponent\b", default_visibility="public")
+
+    def parse(self):
+        content = self.owner.get_clean_content()
+        matches = list(self.outer_regex.all_matches(content))
+        if not matches:
+            logging.warning(f"No VUE components created via defineComponent in {self.owner.file_name}, used content:\n{content}")
+        for match in matches:
+            name = match.group('name') or "VueComponent"
+            start_pos = match.start('name') if match.group('name') else match.start()
+            start_line = self.owner.find_line(start_pos)
+            vis = self.default_visibility
+            full_text = self.owner.extract_entity_text(start_pos, match.end())
+            logging.debug(f"Attempting to add component {name} at line {start_line}, text: {full_text!r}")
+            extra_fields = {"parent": ""}
+            self.make_add_entity(self.entity_type, self.owner.module_prefix + name, vis, start_line, full_text, extra_fields)
+
+        return True
+
+
+class ContentCodeVue(ContentBlock):
+    """Parser for Vue content blocks."""
+    supported_types = [".vue"]
+
+    def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
+        super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
+        self.tag = "vue"
+        self.string_quote_chars = "\"'`"
+        self.open_ml_string = ["`"]
+        self.close_ml_string = ["`"]
+        self.entity_map = {}
+        self.module_prefix = kwargs.get("module_prefix", "")
+        logging.debug(f"Initialized ContentCodeVue with tag={self.tag}, file_name={file_name}, module_prefix={self.module_prefix}")
+
+    def parse_content(self, clean_lines=None, depth=0):
+        """Parses Vue content to extract entities and dependencies."""
+        logging.debug(f"Parsing content at depth {depth} for file {self.file_name}")
+        if depth >= 2:
+            self.parse_warn(f"Maximum recursion depth reached for file {self.file_name}")
+            return {"entities": [], "dependencies": {"modules": [], "imports": {}}}
+        self.entity_map = {}
+        self.dependencies = {"modules": [], "imports": {}}
+        self.clean_lines = clean_lines if clean_lines is not None else ([""] + self.content_text.splitlines())
+        self.strip_strings()
+        self.strip_comments()
+
+        parsers = [
+            ComponentParser("component", self),
+            MethodParser("method", self),
+            FunctionParser("function", self),
+            DepsParserJs(self)
+        ]
+
+        original_clean_lines = self.clean_lines.copy()
+        for parser in parsers:
+            try:
+                self.clean_lines = original_clean_lines.copy()
+                if parser.parse():
+                    self.extend_deps(parser)
+                    self.clean_lines = parser.masquerade()
+                    logging.debug(f"Applied {parser.__class__.__name__} parser, new clean_lines[1:10]: {self.clean_lines[1:10]}")
+            except Exception as e:
+                logging.error(f"Error in {parser.__class__.__name__} parser for {self.file_name}: {str(e)}")
+                traceback.print_exc()
+                break
+
+        self.clean_lines = original_clean_lines
+        entities = self.sorted_entities()
+        logging.debug(f"Parsed {len(entities)} entities in {self.file_name}")
+        return {"entities": entities, "dependencies": self.dependencies}
+
+
+SandwichPack.register_block_class(ContentCodeVue)
+</python>
+<python file_id="16" mod_time="2025-07-15 06:32:56Z" relevance="0">
+# /lib/__init__.py, created 2025-07-15 09:35 EEST
+
+
+</python>
+<python file_id="17" mod_time="2025-08-09 15:16:19Z" relevance="0">
+# /tests/brief_tests.py, updated 2025-08-05 16:00 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import unittest
+import os
+import logging
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.rust_block import ContentCodeRust
+from lib.vue_block import ContentCodeVue
+from lib.shellscript_block import ContentShellScript
+from lib.python_block import ContentCodePython
+from lib.js_block import ContentCodeJs
+from lib.php_block import ContentCodePHP
+
+logging.basicConfig(
+    level=os.environ.get('LOGLEVEL', 'INFO').upper()
+)
+
+
+def dump_entities(ent_list: list):
+    dump = []
+    for e in ent_list:
+        dump.append(str(e))
+    logging.info("Found entities " + "\n\t".join(dump))
+
+
+class TestParsersBrief(unittest.TestCase):
+    def setUp(self):
+        self.timestamp = "2025-08-01T11:00:00Z"
+
+    def entity_check(self, entity, ent_type: str, ent_name: str):
+        self.assertEqual(entity["type"], ent_type, f"Expected valid type `{ent_type}`")
+        self.assertEqual(entity["name"], ent_name, f"Expected valid name `{ent_name}`")
+
+    def test_rust_parser(self):
+        """Test Rust parser for one function and one struct."""
+        logging.info("---------------- test rust parsing -------------")
+        content = """
+pub fn test_function() {
+    println!("");
+}
+
+pub struct TestStruct {
+    field: i32,
+}
+"""
+        block = ContentCodeRust(content, ".rs", "test.rs", self.timestamp)
+        block.strip_strings()
+        block.strip_comments()
+        logging.info(f"Rust clean_lines:\n{block.clean_lines[1:]}")
+        result = block.parse_content()
+        ent_list = result["entities"]
+        dump_entities(ent_list)
+        self.assertEqual(len(ent_list), 2, f"Expected 2 entities, got {len(result['entities'])}")
+        self.assertEqual(ent_list[0]["type"], "function", "Expected function entity")
+        self.assertEqual(ent_list[0]["name"], "test_function", "Expected function name test_function")
+
+        self.assertEqual(ent_list[1]["type"], "structure", "Expected structure entity")
+        self.assertEqual(ent_list[1]["name"], "TestStruct", "Expected structure name TestStruct")
+
+
+    def test_vue_parser(self):
+        """Test Vue parser for one function and one component."""
+        logging.info("---------------- test vue parsing -------------")
+        content = """
+import { defineComponent } from 'vue';
+
+const App = defineComponent({
+    methods: {
+        testFunction() {
+            console.log('');
+        }
+    }
+});
+"""
+        block = ContentCodeVue(content, ".vue", "test.vue", self.timestamp)
+        block.strip_strings()
+        block.strip_comments()
+        logging.info(f"Vue clean_lines:\n{block.clean_lines[1:]}")
+        result = block.parse_content()
+        ent_list = result["entities"]
+        dump_entities(ent_list)
+        self.assertEqual(len(ent_list), 2, f"Expected 2 entities, got {len(result['entities'])}")
+        self.entity_check(ent_list[0], "component", "App")
+        self.entity_check(ent_list[1], "method", "testFunction")
+
+    def test_shell_parser(self):
+        """Test Shell parser for one function (no structs in shell)."""
+        logging.info("---------------- test shell parsing -------------")
+        content = """
+# Test struct-like comment for consistency
+function test_function() {
+    echo ""
+}
+export -f test_function
+"""
+        block = ContentShellScript(content, ".sh", "test.sh", self.timestamp)
+        block.strip_strings()
+        block.strip_comments()
+        logging.info(f"Shell clean_lines:\n{block.clean_lines[1:]}")
+        result = block.parse_content()
+        ent_list = result["entities"]
+        dump_entities(ent_list)
+        self.assertEqual(len(ent_list), 1, f"Expected 1 entity, got {len(result['entities'])}")
+        self.entity_check(ent_list[0], "function", "test_function")
+
+    def test_python_parser(self):
+        """Test Python parser for one function and one class."""
+        logging.info("---------------- test python parsing -------------")
+        content = """
+def test_function():
+    print("")
+
+class TestClass:
+    def test_method(self):
+        print("")
+"""
+        block = ContentCodePython(content, ".py", "test.py", self.timestamp)
+        block.strip_strings()
+        block.strip_comments()
+        logging.info(f"Python clean_lines:\n{block.clean_lines[1:]}")
+        result = block.parse_content()
+        ent_list = result["entities"]
+        dump_entities(ent_list)
+        self.assertEqual(len(ent_list), 3, f"Expected some entities, got {len(result['entities'])}")
+        self.entity_check(ent_list[0], "function", "test_function")
+        self.entity_check(ent_list[1], "class", "TestClass")
+        self.entity_check(ent_list[2], "method", "test_method")
+
+    def test_js_parser(self):
+        """Test JavaScript parser for one function and one object."""
+        logging.info("---------------- test js parsing -------------")
+        content = """
+function testFunction() {
+    console.log("");
+}
+
+const testFunction2 = function() {
+}
+ const testFunction3 = (value: int) => {
+ }
+
+const TestObject = {
+    methods: {
+        testMethod() {
+            console.log("");
+        }
+    }
+};
+"""
+        block = ContentCodeJs(content, ".js", "test.js", self.timestamp)
+        block.strip_strings()
+        block.strip_comments()
+        logging.info(f"JS clean_lines:\n{block.clean_lines[1:]}")
+        result = block.parse_content()
+        ent_list = result["entities"]
+        dump_entities(ent_list)
+        self.assertEqual(len(ent_list), 5, f"Expected some entities, got {len(result['entities'])}")
+        self.entity_check(ent_list[0], "function", "testFunction")
+        self.entity_check(ent_list[1], "function", "testFunction2")
+        self.entity_check(ent_list[2], "function", "testFunction3")
+        self.entity_check(ent_list[3], "object", "TestObject")
+        self.entity_check(ent_list[4], "method", "testMethod")
+
+    def test_php_parser(self):
+        """Test PHP parser for one function and one class."""
+        logging.info("---------------- test php parsing -------------")
+        content = """
+<?php
+function testFunction() {
+    echo "";
+}
+
+class TestClass {
+    public function testMethod() {
+        echo "";
+    }
+}
+"""
+        block = ContentCodePHP(content, ".php", "test.php", self.timestamp)
+        block.strip_strings()
+        block.strip_comments()
+        logging.info(f"PHP clean_lines:\n{block.clean_lines[1:]}")
+        result = block.parse_content()
+        ent_list = result["entities"]
+        dump_entities(ent_list)
+        self.assertEqual(len(ent_list), 3, f"Expected count entities, got {len(result['entities'])}")
+        self.entity_check(ent_list[0], "function", "testFunction")
+        self.entity_check(ent_list[1], "class", "TestClass")
+        self.entity_check(ent_list[2], "method", "testMethod")
+
+
+if __name__ == "__main__":
+    unittest.main()
+</python>
+<python file_id="18" mod_time="2025-08-03 08:01:14Z" relevance="0">
+# /tests/regex_imports.py, created 2025-08-03 10:22 EEST
+# Tests IMPORT_REGEX and string replacement for require/include variants
+
+import re
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+
+# Regular expression for imports
+IMPORT_REGEX = re.compile(r"^(?P<indent>[ \t]*)(require|include|require_once|include_once)\s+\(*['\"](\S+)['\"]\)*", re.MULTILINE)
+
+# Test content with various import statements
+TEST_CONTENT = """\
+require "module1.php";
+include 'module2.php';
+require_once "module3.php";
+include_once 'module4.php';
+  require "indented_module.php";
+require "nested/module.php";
+require "";
+invalid_require "module5.php"
+"""
+
+# Test 1: Parse modules
+def test_parse_modules():
+    modules = []
+    mcount = 0
+    for match in IMPORT_REGEX.finditer(TEST_CONTENT):
+        module = match.group(3)
+        mcount += 1
+        if module:
+            modules.append(module)
+            logging.debug(f"Found module: {module}")
+        else:
+            logging.debug(f"Strange match: {match.group(0)}")
+            
+    assert mcount == 6, f"Detected not all imports"
+    expected = ["module1.php", "module2.php", "module3.php", "module4.php", "indented_module.php", "nested/module.php"]
+    assert modules == expected, f"Expected modules {expected}, got {mcount} = {modules}"
+    logging.info(f"Parsed modules: {modules}")
+
+# Test 2: Protect module names
+def test_protect_modules():
+    protected_content = re.sub(
+        r"^(?P<indent>[ \t]*)(require|include|require_once|include_once)\s+\(*['\"]([^'^\"]+)['\"]\)*",
+        r'\g<indent>\g<2> ""\g<3>""',
+        TEST_CONTENT,
+        flags=re.MULTILINE
+    )
+    expected_lines = [
+        'require ""module1.php"";',
+        "include \"\"module2.php\"\";",
+        'require_once ""module3.php"";',
+        'include_once ""module4.php"";',
+        '  require ""indented_module.php"";',
+        'require ""nested/module.php"";',
+        'require "";',
+        'invalid_require "module5.php"'
+    ]
+    result_lines = protected_content.splitlines()
+    assert result_lines == expected_lines, f"Expected lines {expected_lines}, got {result_lines}"
+    logging.info(f"Protected content:\n{protected_content}")
+
+if __name__ == "__main__":
+    test_parse_modules()
+    test_protect_modules()
+    logging.info("All tests passed!")
+</python>
+<js file_id="19" mod_time="2025-08-02 09:04:08Z" relevance="0">
+// /tests/test.js, updated 2025-08-01 21:00 EEST
+// JavaScript test file with various entities
+
+// Regular function
+function simpleFunction() {
+    console.log("");
+}
+
+// Arrow function
+const arrowFunction = () => {
+    console.log("");
+}
+
+// Function expression
+const exprFunction = function expr() {
+    console.log("");
+}
+
+// Object with methods
+const myObject = {
+    methods: {
+        myMethod() {
+            console.log("");
+        }
+    }
+}
+
+// Export default object
+export default {
+    computed: {
+        myComputed() {
+            console.log("");
+        }
+    }
+}
+
+// Import statements
+import { lib } from "library";
+const module = require("module");
+
+// Incomplete string (trap)
+function incompleteString() {
+    const s = "unclosed { string;
+    console.log(s);
+}
+
+// TypeScript-specific constructs (for ContentCodeTypeScript)
+interface MyInterface {
+    method(): void;
+}
+
+class MyClass {
+    method() {
+        console.log("");
+    }
+}
+</js>
+<php file_id="20" mod_time="2025-08-06 09:54:23Z" relevance="0">
+<?php
+  // /tests/test.php, updated 2025-08-02 13:35 EEST
+  // PHP test file with various entities
+  
+  // Regular function
+  function simple_function() {
+      echo "";
+  }
+  
+  // Class with methods
+  class MyClass {
+      public function my_method() {
+          imported_func();
+      }
+      public function sqli(): ?mysqli_ex {
+          return null;
+      }
+      public function my_abstract_method();
+  }
+  
+  // Imports
+  require "my_module.php";
+?>
+Not a code trap
+function fake_function() {
+}
+<?PHP
+// Next block 
+  function last_function(a = "" + 'delta') {
+  }
+?>
+</php>
+<python file_id="21" mod_time="2025-08-04 09:40:17Z" relevance="0">
+# /tests/test.py, updated 2025-08-04 12:30 EEST
+# Python test file with various entities
+
+# Regular function
+def simple_function():
+    def local_inner():
+        print("")
+    x = 42
+    print("")
+
+# Class with methods
+class MyClass:
+    def my_method(self):
+        print("")
+
+    @classmethod
+    def my_classmethod(cls):
+        print("")
+
+# Imports
+from my_module import my_import
+</python>
+<rustc file_id="22" mod_time="2025-08-08 15:00:13Z" relevance="0">
+// /tests/test.rs, updated 2025-07-31 16:59 EEST
+// Однострочная строка с фигурными скобками
+pub fn simple_function() {
+    let s = "";
+    println!("{}", s);
+}
+
+// Многострочная RAW-строка
+pub fn raw_string_function() {
+    let raw = r#"struct Inner { x: i32 }"#;
+    println!("{}", raw);
+}
+
+// Многострочный комментарий
+pub fn comment_function() {
+    /* let s = ""; */
+    println!("");
+}
+
+// Однострочный комментарий
+pub fn single_comment_function() {
+    // let s = "";
+    println!("");
+}
+
+// Вложенная структура
+pub struct Outer {
+    inner: Inner,
+}
+
+struct Inner {
+    x: i32,
+}
+
+// Незакрытая строка (ловушка)
+pub fn incomplete_string() {
+    let s = "unclosed { string;
+    println!("{}", s);
+}
+
+// Трейт и его реализация (ловушка)
+pub trait ExampleTrait: Send + Sync {
+    fn trait_method(&self) -> Option<&Inner>;
+}
+
+impl ExampleTrait for Outer {
+    fn trait_method(&self) -> Option<&Inner> {
+        println!("");
+    }
+}
+
+// Модуль с функцией
+pub mod logger {
+    pub fn logger_function() {
+        println!("");
+    }
+}
+
+// Дополнительный модуль для тестирования
+pub mod extra_module {
+    pub struct ExtraStruct {
+        value: i32,
+    }
+    pub fn extra_function() {
+        println!("");
+    }
+}
+
+impl Inner {
+     pub async fn new() -> Self {
+         Self(11) {
+         }
+     }         
+}
+
+use async_trait::async_trait;
+use chrono::{DateTime, Utc, Timelike};
+
+use crate::{
+    entities::account::TradingAccount,
+    entities::account_data::{FundsHistoryRow, DepositHistoryRow},    
+};
+
+// Loads equity data for an account, adjusting for deposits and withdrawals over time
+#[async_trait]
+pub trait LoadEquityData {
+    async fn load_equity_data(
+        &self,        
+        account: &TradingAccount,
+        start_ts: DateTime<Utc>,
+        end_ts: DateTime<Utc>,
+        value_column: &str,
+    ) -> Result<Vec<(DateTime<Utc>, f32)>, String>;
+}
+
+
+#[async_trait]
+impl LoadEquityData for MySqlDataSource {
+    // Loads equity data by fetching funds history, adjusting for deposits/withdrawals, and using PriceCache for BTC prices
+    async fn load_equity_data(
+        &self,        
+        account: &TradingAccount,
+        start_ts: DateTime<Utc>,
+        end_ts: DateTime<Utc>,
+        value_column: &str,
+    ) -> Result<Vec<(DateTime<Utc>, f32)>, String> {
+        let account_id = account.account_id;            
+        let exchange = &account.exchange.name;
+
+        // Choose fetch method based on period duration
+        let period_hours = (end_ts - start_ts).num_hours();
+        let funds = if period_hours > 1500 {
+            self.get_funds_history_aggregated(account, start_ts, end_ts)
+                .await
+                .map_err(|e| format!("Failed to fetch aggregated funds history: {}", e))?
+        } else {
+            self.get_funds_history(account, start_ts, end_ts)
+                .await
+                .map_err(|e| format!("Failed to fetch funds history: {}", e))?
+        };
+        let mut funds = funds;
+        funds.sort_by(|a, b| a.ts.cmp(&b.ts)); // Ensure chronological order
+
+        let mut deposits = self.get_deposit_history(account, end_ts)
+            .await
+            .map_err(|e| format!("Failed to fetch deposit history: {}", e))?;
+        deposits.sort_by(|a, b| a.ts.cmp(&b.ts)); // Ensure chronological order
+
+        let mut equity_points = Vec::new();
+        let mut accum_usd = 0.0;
+        let mut accum_btc = 0.0;
+        let mut fund_idx = 0;
+
+        let cache = account.exchange.get_price_cache(Some(BTC_PAIR_ID)).await;
+
+        // Add sentinel deposit to handle remaining funds
+        deposits.push(DepositHistoryRow {
+            ts: end_ts + chrono::Duration::seconds(1),
+            withdrawal: false,
+            value_usd: 0.0,
+            value_btc: 0.0,
+        });
+
+        for dep in deposits {
+            let dep_ts = dep.ts;
+
+            // Process all funds points before or at the deposit time
+            while fund_idx < funds.len() && funds[fund_idx].ts <= dep_ts {
+                let fund = &funds[fund_idx];
+                let btc_price = cache.get_vwap(fund.ts)
+                    .await
+                    .map_err(|e| format!("Failed to fetch BTC price: {}", e))?;
+
+                let usd_coef = if btc_price > 0.0 { 1.0 / btc_price } else { 0.0 };
+                let btc_coef = btc_price;
+
+                let value = match value_column {
+                    "value_btc" => fund.value_btc - accum_btc - accum_usd * usd_coef,
+                    _ => fund.value - accum_usd - accum_btc * btc_coef,
+                };
+
+                let ts = fund.ts
+                    .with_second(0)
+                    .expect("Invalid datetime")
+                    .with_nanosecond(0)
+                    .expect("Invalid datetime");
+
+                equity_points.push((ts, value));
+                fund_idx += 1;
+            }
+
+            // Update accumulated sums for the current deposit/withdrawal
+            let sign = if dep.withdrawal { -1.0 } else { 1.0 };
+            accum_usd += dep.value_usd * sign;
+            accum_btc += dep.value_btc * sign;
+        }
+
+        Ok(equity_points)
+    }
+}
+</rustc>
+<tss file_id="23" mod_time="2025-08-02 06:22:30Z" relevance="0">
+// /tests/test.ts, created 2025-08-01 23:45 EEST
+// TypeScript test file with specific entities
+
+interface MyInterface {
+    method(): void;
+}
+
+class MyClass {
+    public method() {
+        console.log("");
+    }
+}
+
+</tss>
+<python file_id="24" mod_time="2025-08-02 08:08:27Z" relevance="0">
+# /tests/test_js_parse.py, updated 2025-08-01 23:45 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import unittest
+import os
+import json
+import logging
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.js_block import ContentCodeJs, ContentCodeTypeScript
+
+logging.basicConfig(
+    level=os.environ.get('LOGLEVEL', 'INFO').upper()
+)
+
+g_blocks = {}
+
+def code_block(file_name: str, content: str, is_typescript=False):
+    keys = g_blocks.keys()
+    if g_blocks.get(file_name,  False):
+        return g_blocks[file_name]
+    logging.debug(f" Creating block for {file_name}, exists {keys}")
+    block_class = ContentCodeTypeScript if is_typescript else ContentCodeJs
+    block = block_class(content, ".ts" if is_typescript else ".js", file_name, "2025-08-01T21:00:00Z")
+    logging.debug(f" =================================== Stripping block {file_name} ====================================== ")
+    block.strip_strings()
+    block.strip_comments()
+    logging.debug(f" =================================== Parsing block {file_name} ====================================== ")
+    block.parse_content()
+    g_blocks[file_name] = block
+    return block
+
+
+def _scan_log(log, sub_str):
+    found = any(sub_str in msg for msg in log.output)
+    print("Log output:", log.output)
+    return found
+
+
+class TestJsParse(unittest.TestCase):
+    def setUp(self):
+        self.file_path = "test.js"
+        self.ref_path = "js_parse_ref.json"
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.clean_file = "/app/tests/test.js.cln"
+        self.block = code_block(self.file_path, content, is_typescript=self.file_path.endswith(".ts"))
+        self.block.save_clean(self.clean_file)
+        with open(self.ref_path, "r", encoding="utf-8") as f:
+            self.reference = json.load(f)["entities"]
+
+    def test_parse_content(self):
+        print("------------------------- test parse content ----------------------")
+        _b = self.block
+        entities = _b.sorted_entities()
+        print("Detected entities:")
+        for i, e in enumerate(entities):
+            print(f" E{i + 1} \t{e}")
+        self.assertEqual(len(entities), len(self.reference), f"Expected {len(self.reference)} entities, got {len(entities)}")
+        fields = ['name', 'type', 'first_line', 'last_line', 'visibility', 'tokens']
+        fails = []
+
+        for i, ref_entity in enumerate(self.reference):
+            if i >= len(entities):
+                fails.append(f"Entities detected less than {len(self.reference)}")
+                break
+            best = []
+            best_i = i
+            name = ref_entity['name']
+            for j, entity in enumerate(entities):
+                matches = []
+                for field in fields:
+                    if entity.get(field) == ref_entity.get(field):
+                        matches.append(field)
+                        continue
+                    elif i == j:
+                        logging.warning(f"\t for entity {name} field {field} = `{entity.get(field)}` vs expected `{ref_entity.get(field)}` ")
+                    break
+                if ('name' in matches) and len(matches) > len(best):
+                    best_i = j
+                    best = matches
+
+                if len(matches) == len(fields):
+                    break
+
+            if len(best) == len(fields):
+                continue
+            elif len(best) > 0:
+                fails.append(f"\tE{i + 1} `{name}` only matched " + ",".join(best))
+            else:
+                fails.append(f"\tE{i + 1} for `{name}` nothing detected. Expected at index '{entities[best_i]}' ")
+
+        self.assertEqual(len(fails), 0, f"Not found entities:\n" + "\n".join(fails))
+        print("Parse content strip log:\n\t", "\n\t".join(_b.strip_log))
+        print("----------------------- TEST PASSED ---------------------------------------")
+
+    def test_incomplete_cases(self):
+        print("------------------------- Incomplete cases test ----------------------")
+        _b = self.block
+        _warns = ";\t".join(_b.warnings)
+        for _must in ["Incomplete string literal"]:
+            self.assertIn(_must, _warns, f"Warning '{_must}' was expected")
+        print("Incomplete cases warnings:\n\t", "\n\t".join(_b.warnings))
+        print("Incomplete cases strip log:\n\t", "\n\t".join(_b.strip_log))
+        print("----------------------- TEST PASSED ---------------------------------------")
+
+    def test_js_template_string_no_escape(self):
+        print("------------------------- template string no escape ----------------------")
+        os.environ['LOGLEVEL'] = 'WARNING'  # Suppress DEBUG logs for stable test
+        test_content = '''
+        function testTemplate() {
+            const s = `test \\ string`;
+            const t = `test \\ string ${variable}`;
+        }
+        '''
+        _b = code_block("test_template.js", test_content, is_typescript=False)
+        clean_lines = _b.clean_lines
+        print("Template string strip log:\n\t", "\n\t".join(_b.strip_log))
+        print(f"Clean lines: {clean_lines}")
+        self.assertEqual(clean_lines[3].strip(), 'const s = ``;')  # `...`
+        self.assertEqual(clean_lines[4].strip(), 'const t = ``;')  # `...${...}`
+        print("----------------------- TEST PASSED ---------------------------------------")
+
+
+    def test_typescript_specific(self):
+        print("------------------------- TypeScript specific tests ----------------------")
+        os.environ['LOGLEVEL'] = 'WARNING'  # Suppress DEBUG logs for stable test
+        self.file_path = "test.ts"
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            test_content = f.read()
+        _b = code_block("test_typescript.ts", test_content, is_typescript=True)
+        entities = list(_b.entity_map.values())
+        self.assertEqual(len(entities), 2, f"Expected 2 entities, got {len(entities)}")
+        self.assertEqual(entities[0]["type"], "interface", "Expected interface entity")
+        self.assertEqual(entities[0]["name"], "MyInterface", "Expected interface name MyInterface")
+        self.assertEqual(entities[1]["type"], "class", "Expected class entity")
+        self.assertEqual(entities[1]["name"], "MyClass", "Expected class name MyClass")
+        print("TypeScript entities:\n\t", "\n\t".join([str(e) for e in entities]))
+        print("TypeScript strip log:\n\t", "\n\t".join(_b.strip_log))
+        print("----------------------- TEST PASSED ---------------------------------------")
+
+if __name__ == "__main__":
+    unittest.main()
+</python>
+<python file_id="25" mod_time="2025-08-09 15:47:40Z" relevance="0">
+# /tests/test_php_parse.py, updated 2025-08-02 14:05 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import unittest
+import json
+import logging
+from pathlib import Path
+from lib.php_block import ContentCodePHP
+
+logging.basicConfig(level=logging.DEBUG)
+
+
+def entity_dump(ent_list):
+    return "\n\t".join(str(e) for e in ent_list)
+
+
+def code_block(file_name: str, content: str):
+    block = ContentCodePHP(
+        content_text=content,
+        content_type=".php",
+        file_name=file_name,
+        timestamp="2025-08-02 12:42:00Z",
+        file_id=0
+    )
+    logging.debug(f" =================================== Stripping block {file_name} ====================================== ")
+    block.strip_strings()
+    block.strip_comments()
+    logging.debug(" Clean_lines:\n" + "\n".join(block.clean_lines))
+    logging.debug(f"Strip log: " + "\n".join(block.strip_log))
+    block.save_clean(file_name + '.cln')
+    logging.debug(f" =================================== Parsing block {file_name} ====================================== ")
+    return block
+
+class TestPhpParse(unittest.TestCase):
+    def setUp(self):
+        self.test_file = "test.php"
+        self.ref_file = "php_parse_ref.json"
+        self.maxDiff = None
+        with open(self.test_file, "r", encoding="utf-8-sig") as f:
+            content = f.read()
+        self.block = code_block(self.test_file, content)
+
+    def test_parse_content(self):
+        """Test parsing of test.php content."""
+        with open(self.ref_file, "r", encoding="utf-8") as f:
+            ref_data = json.load(f)
+
+        result = self.block.parse_content()
+
+        expected_entities = ref_data["entities"]
+        expected_deps = ref_data["dependencies"]
+        found_entities = result["entities"]
+        found_deps = result["dependencies"]
+        logging.debug(f" =================================== Checking entities ====================================== ")
+        logging.debug(f"Found entities:\n" + entity_dump(found_entities))
+        logging.debug(f"Expected entities:\n" + entity_dump(expected_entities))
+
+        fails = []
+        for i, (exp, found) in enumerate(zip(expected_entities, found_entities), 1):
+            if exp != found:
+                for k in exp:
+                    if exp[k] != found.get(k):
+                        fails.append(f"E{i} `{exp['name']}` unmatched {k}: expected `{exp[k]}`, got `{found.get(k)}`  ")
+        self.assertEqual(len(fails), 0, f"Not found entities:\n" + "\n".join(fails))
+
+        logging.debug(f"Found dependencies: {found_deps}")
+        logging.debug(f"Expected dependencies: {expected_deps}")
+        self.assertEqual(found_deps, expected_deps, f"Dependencies mismatch: expected {expected_deps}, got {found_deps}")
+
+if __name__ == "__main__":
+    unittest.main()
+</python>
+<python file_id="26" mod_time="2025-08-04 08:28:15Z" relevance="0">
+# /tests/test_py_parse.py, created 2025-08-03 14:42 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import unittest
+import os
+import json
+import logging
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.python_block import ContentCodePython
+
+logging.basicConfig(
+    level=os.environ.get('LOGLEVEL', 'INFO').upper()
+)
+
+g_blocks = {}
+
+def code_block(file_name: str, content: str):
+    keys = g_blocks.keys()
+    if g_blocks.get(file_name, False):
+        return g_blocks[file_name]
+    logging.debug(f" Creating block for {file_name}, exists {keys}")
+    block = ContentCodePython(content, ".py", file_name, "2025-08-03T14:00:00Z")
+    logging.debug(f" =================================== Stripping block {file_name} ====================================== ")
+    block.strip_strings()
+    block.strip_comments()
+    logging.debug(f" Clean_lines:\n" + "\n".join(block.clean_lines))
+    logging.debug(f" =================================== Parsing block {file_name} ====================================== ")
+    block.parse_content()
+    g_blocks[file_name] = block
+    return block
+
+class TestPyParse(unittest.TestCase):
+    def setUp(self):
+        self.file_path = "test.py"
+        self.ref_path = "py_parse_ref.json"
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.clean_file = "/app/tests/test.py.cln"
+        self.block = code_block(self.file_path, content)
+        self.block.save_clean(self.clean_file)
+        with open(self.ref_path, "r", encoding="utf-8") as f:
+            self.reference = json.load(f)
+
+    def test_parse_content(self):
+        print("------------------------- test parse content ----------------------")
+        _b = self.block
+        result = _b.parse_content()
+        entities = result["entities"]
+        dependencies = result["dependencies"]
+        print("Detected entities:")
+        for i, e in enumerate(entities):
+            print(f" E{i + 1} \t{e}")
+        expected_entities = self.reference["entities"]
+        expected_deps = self.reference["dependencies"]
+        self.assertEqual(len(entities), len(expected_entities), f"Expected {len(expected_entities)} entities, got {len(entities)}")
+        fields = ['name', 'type', 'first_line', 'last_line', 'visibility', 'tokens']
+        fails = []
+
+        for i, ref_entity in enumerate(expected_entities):
+            if i >= len(entities):
+                fails.append(f"Entities detected less than {len(expected_entities)}")
+                break
+            best = []
+            best_i = i
+            name = ref_entity['name']
+            for j, entity in enumerate(entities):
+                matches = []
+                for field in fields:
+                    if entity.get(field) == ref_entity.get(field):
+                        matches.append(field)
+                        continue
+                    elif i == j:
+                        logging.warning(f"\t for entity {name} field {field} = `{entity.get(field)}` vs expected `{ref_entity.get(field)}` ")
+                    break
+                if ('name' in matches) and len(matches) > len(best):
+                    best_i = j
+                    best = matches
+                if len(matches) == len(fields):
+                    break
+            if len(best) == len(fields):
+                continue
+            elif len(best) > 0:
+                fails.append(f"\tE{i + 1} `{name}` only matched " + ",".join(best))
+            else:
+                fails.append(f"\tE{i + 1} for `{name}` nothing detected. Expected at index '{entities[best_i]}' ")
+
+        self.assertEqual(len(fails), 0, f"Not found entities:\n" + "\n".join(fails))
+        print("Parse content strip log:\n\t", "\n\t".join(_b.strip_log))
+        print("Detected dependencies:", dependencies)
+        print("Expected dependencies:", expected_deps)
+        self.assertEqual(dependencies, expected_deps, f"Dependencies mismatch: expected {expected_deps}, got {dependencies}")
+        print("----------------------- TEST PASSED ---------------------------------------")
+
+if __name__ == "__main__":
+    unittest.main()
+</python>
+<python file_id="27" mod_time="2025-08-08 11:25:19Z" relevance="0">
+# /tests/test_rust_parse.py, updated 2025-08-01 09:08 EEST
+# Formatted with proper line breaks and indentation for project compliance.
+
+import unittest
+import os
+import json
+import logging
+from lib.content_block import ContentBlock, estimate_tokens
+from lib.rust_block import ContentCodeRust
+
+logging.basicConfig(
+    level=os.environ.get('LOGLEVEL', 'INFO').upper()
+)
+
+g_block = None
+
+def code_block(file_name, content):
+    global g_block
+    if g_block is None:
+        block = ContentCodeRust(content, ".rs", file_name, "2025-07-29T18:00:00Z")
+        logging.debug("///////////////////////////////// GENERATING COMMON BLOCK //////////////////////////////////////")
+        block.strip_strings()
+        block.strip_comments()
+        block.parse_content()
+        g_block = block
+    return g_block
+
+
+def _scan_log(log, sub_str):
+    found = any(sub_str in msg for msg in log.output)
+    print("Log output:", log.output)
+    return found
+
+
+class TestRustParse(unittest.TestCase):
+    def setUp(self):
+        self.file_path = "test.rs"
+        self.ref_path = "rust_parse_ref.json"
+        with open(self.file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.clean_file = "/app/tests/test.rs.cln"
+        self.block = code_block(self.file_path, content)
+        self.block.save_clean(self.clean_file)
+        with open(self.ref_path, "r", encoding="utf-8") as f:
+            self.reference = json.load(f)["entities"]
+
+    def test_parse_content(self):
+        _b = self.block
+        entities = _b.sorted_entities()
+        print("Detected entities:")
+        for i, e in enumerate(entities):
+            print(f" E{i + 1} \t{e}")
+        self.assertEqual(len(entities), len(self.reference), f"Expected {len(self.reference)} entities, got {len(entities)}")
+        fails = []
+
+        for i, ref_entity in enumerate(self.reference):
+            if i >= len(entities):
+                fails.append(f"Entities detected less than {len(self.reference)}")
+                break
+            best = []
+            best_i = i
+            name = ref_entity['name']
+            unmatched = []
+            for j, entity in enumerate(entities):
+                matches = []
+                fields = ref_entity.keys()
+                for field in fields:
+                    if entity[field] == ref_entity[field]:
+                        # logging.debug(f"\t matched {field} => {entity[field]}, total {len(matches)}")
+                        matches.append(field)
+                        continue
+                    elif i == j:
+                        unmatched.append(f" {field}={entity[field]}")
+                        logging.warning(f"\t for entity {name} field {field} = `{entity[field]}` vs expected `{ref_entity[field]}` ")
+                    break
+                if ('name' in matches) and len(matches) > len(best):
+                    best_i = j
+                    best = matches
+
+                if len(matches) == len(fields):
+                    break
+
+            if len(best) == len(fields):
+                continue
+            elif len(best) > 0:
+                fails.append(f"\tE{i + 1} `{name}` only matched [" + ",".join(best) + "], unmatched: " + ",".join(unmatched))
+            else:
+                fails.append(f"\tE{i + 1} for `{name}` nothing detected. Exists at index '{entities[best_i]}' ")
+
+        self.assertEqual(len(fails), 0, f"Not found entities:   \n" + "\n".join(fails))
+        print("Parse content strip log:\n\t", "\n\t".join(_b.strip_log))
+
+    def test_rust_raw_string_no_escape(self):
+        os.environ['LOGLEVEL'] = 'WARNING'  # Suppress DEBUG logs for stable test
+        test_content = '''
+        fn test_raw() {
+            let s = r"test \\ string";
+            let t = r#"test \\ string"#;
+        }
+        '''
+        logging.debug("////////////////////// TEST RAW STRINGS /////////////////////////////")
+        _b = ContentCodeRust(test_content, ".rs", "test_raw.rs", "2025-07-29T18:00:00Z")
+        _b.strip_strings()
+        _b.strip_comments()
+        clean_lines = _b.clean_lines
+        self.assertEqual(clean_lines[3].strip(), 'let s = r"";')  # r"..."
+        self.assertEqual(clean_lines[4].strip(), 'let t = r#""#;')  # r#...#
+        # print("Raw string strip log:\n\t", "\n\t".join(_b.strip_log))
+
+if __name__ == "__main__":
+    unittest.main()
+</python>
+
+INDEX_COPY:
+{
+  "packer_version": "0.6",
+  "context_date": "2025-08-09 16:40:12Z",
+  "templates": {
+    "filelist": "file_id,file_name,md5,tokens,timestamp",
+    "users": "user_id,username,role",
+    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens"
+  },
+  "project_name": "sandwich_pack",
+  "datasheet": {
+    "project_root": "/app",
+    "backend_address": "http://localhost:8080",
+    "frontend_address": "http://vps.vpn:8008",
+    "resources": {
+      "database": "sqlite:///app/data/multichat.db",
+      "log_file": "/app/logs/colloquium_core.log"
+    }
+  },
+  "entities": [
+    "pub,function,,get_file_mod_time,0,11-14,54",
+    "pub,function,,is_hidden_file,0,16-17,30",
+    "pub,function,,collect_files,0,19-71,493",
+    "pub,function,,main,0,73-106,333",
+    "pub,function,,verify_sandwiches,1,14-75,486",
+    "pub,class,ABC,CodeStripper,2,10-104,878",
+    "prv,method,CodeStripper,__init__,2,12-19,68",
+    "pub,method,CodeStripper,detect_single,2,21-24,36",
+    "pub,method,CodeStripper,detect_multi_open,2,26-29,24",
+    "pub,method,CodeStripper,detect_multi_close,2,31-34,37",
+    "pub,method,CodeStripper,strip,2,36-104,687",
+    "pub,class,CodeStripper,CodeStringStripper,2,106-166,740",
+    "pub,class,CodeStripper,CodeCommentStripper,2,168-198,392",
+    "pub,class,,ContentBlock,3,22-384,3724",
+    "prv,method,ContentBlock,__init__,3,25-54,360",
+    "pub,method,ContentBlock,parse_warn,3,56-59,27",
+    "pub,method,ContentBlock,strip_strings,3,61-78,175",
+    "pub,method,ContentBlock,strip_comments,3,80-94,136",
+    "pub,method,ContentBlock,save_clean,3,96-108,144",
+    "pub,method,ContentBlock,get_clean_content,3,110-121,105",
+    "pub,method,ContentBlock,find_line,3,123-130,81",
+    "pub,method,ContentBlock,count_chars,3,132-142,109",
+    "pub,method,ContentBlock,sorted_entities,3,144-152,87",
+    "pub,method,ContentBlock,detect_bounds,3,154-178,271",
+    "pub,method,ContentBlock,check_entity_placement,3,180-200,240",
+    "pub,method,ContentBlock,add_entity,3,202-217,190",
+    "pub,method,ContentBlock,extract_entity_text,3,219-228,132",
+    "pub,method,ContentBlock,extend_deps,3,230-241,118",
+    "pub,method,ContentBlock,full_text_replace,3,243-273,371",
+    "pub,method,ContentBlock,compress,3,275-360,973",
+    "pub,method,ContentBlock,to_sandwich_block,3,362-381,156",
+    "pub,method,ContentBlock,parse_content,3,383-384,30",
+    "pub,class,EntityParser,DepsParser,4,11-36,226",
+    "prv,method,DepsParser,__init__,4,13-16,58",
+    "pub,method,DepsParser,add_module,4,18-22,44",
+    "pub,method,DepsParser,add_import,4,24-28,47",
+    "pub,method,DepsParser,store_deps,4,30-36,64",
+    "pub,function,,organize_modules,4,39-100,629",
+    "pub,local_function,,dfs,4,67-77,20",
+    "pub,class,ContentBlock,DocumentBlock,5,9-30,173",
+    "prv,method,DocumentBlock,__init__,5,12-20,105",
+    "pub,method,DocumentBlock,parse_content,5,22-30,42",
+    "pub,function,,match_value,6,11-14,53",
+    "pub,function,,get_start_pos,6,17-18,53",
+    "pub,class,,EntityParser,6,21-258,2486",
+    "prv,method,EntityParser,__init__,6,24-46,340",
+    "prv,method,EntityParser,_format_entity_name,6,48-55,88",
+    "prv,method,EntityParser,_format_inner_name,6,57-58,26",
+    "pub,method,EntityParser,make_entity,6,60-90,333",
+    "pub,method,EntityParser,make_add_entity,6,92-115,273",
+    "pub,method,EntityParser,detect_abstract,6,117-121,67",
+    "pub,method,EntityParser,detect_visibility,6,123-124,32",
+    "prv,method,EntityParser,_process_match,6,126-172,470",
+    "pub,method,EntityParser,parse,6,174-191,152",
+    "pub,method,EntityParser,parse_inner,6,193-243,559",
+    "pub,method,EntityParser,masquerade,6,245-258,136",
+    "pub,class,,IterativeRegex,7,8-113,846",
+    "prv,method,IterativeRegex,__init__,7,11-14,27",
+    "pub,method,IterativeRegex,add_token,7,16-31,170",
+    "pub,method,IterativeRegex,all_matches,7,33-55,165",
+    "pub,method,IterativeRegex,validate_match,7,57-113,474",
+    "pub,class,EntityParser,ObjectParser,8,28-57,358",
+    "prv,method,ObjectParser,__init__,8,30-34,87",
+    "prv,method,ObjectParser,_format_entity_name,8,36-38,40",
+    "pub,method,ObjectParser,parse,8,40-57,218",
+    "pub,class,EntityParser,MethodParser,8,60-108,510",
+    "pub,class,EntityParser,FunctionParser,8,111-141,371",
+    "pub,class,EntityParser,InterfaceParser,8,144-151,116",
+    "pub,class,EntityParser,ClassParser,8,154-161,114",
+    "pub,class,DepsParser,DepsParserJs,8,164-188,254",
+    "prv,method,DepsParserJs,_process_match,8,174-188,152",
+    "pub,class,ContentBlock,ContentCodeJs,8,191-239,467",
+    "pub,method,ContentCodeJs,parse_content,8,204-239,325",
+    "pub,class,ContentCodeJs,ContentCodeTypeScript,8,242-288,443",
+    "pub,function,,estimate_tokens,9,7-22,138",
+    "pub,class,EntityParser,ClassParser,10,30-40,106",
+    "prv,method,ClassParser,__init__,10,32-40,93",
+    "pub,class,EntityParser,FunctionParser,10,43-46,54",
+    "pub,class,DepsParser,DepsParserPHP,10,49-68,158",
+    "prv,method,DepsParserPHP,_process_match,10,61-68,85",
+    "pub,class,ContentBlock,ContentCodePHP,10,70-150,737",
+    "pub,method,ContentCodePHP,strip_strings,10,91-105,96",
+    "pub,method,ContentCodePHP,check_raw_escape,10,108-113,111",
+    "pub,method,ContentCodePHP,parse_content,10,115-150,326",
+    "pub,class,EntityParser,ClassParser,11,21-49,397",
+    "prv,method,ClassParser,__init__,11,23-28,103",
+    "pub,method,ClassParser,parse,11,30-49,281",
+    "pub,class,EntityParser,FunctionParser,11,52-103,666",
+    "prv,method,FunctionParser,_format_entity_name,11,61-62,21",
+    "pub,class,DepsParser,DepsParserPython,11,106-127,194",
+    "pub,class,ContentBlock,ContentCodePython,11,130-227,1040",
+    "pub,method,ContentCodePython,detect_bounds,11,147-190,503",
+    "pub,method,ContentCodePython,parse_content,11,192-227,327",
+    "pub,class,EntityParser,ModuleParser,12,22-66,552",
+    "prv,method,ModuleParser,__init__,12,24-28,88",
+    "prv,method,ModuleParser,_process_match,12,30-66,451",
+    "pub,class,EntityParser,TraitParser,12,69-83,199",
+    "pub,class,EntityParser,TraitImplParser,12,86-109,261",
+    "prv,method,TraitImplParser,_format_entity_name,12,104-109,56",
+    "pub,class,EntityParser,FunctionParser,12,112-120,132",
+    "pub,class,DepsParser,DepsParserRust,12,123-194,576",
+    "pub,method,DepsParserRust,process_imports,12,145-183,365",
+    "pub,class,ContentBlock,ContentCodeRust,12,199-279,787",
+    "pub,method,ContentCodeRust,check_lines_match,12,214-227,171",
+    "pub,method,ContentCodeRust,count_chars,12,229-238,109",
+    "pub,method,ContentCodeRust,parse_content,12,240-279,343",
+    "pub,function,,compute_md5,13,18-19,28",
+    "pub,class,,SandwichPack,13,22-274,2379",
+    "prv,method,SandwichPack,__init__,13,25-41,183",
+    "pub,method,SandwichPack,register_block_class,13,43-46,32",
+    "pub,method,SandwichPack,load_block_classes,13,48-63,160",
+    "pub,method,SandwichPack,supported_type,13,65-72,84",
+    "pub,class,EntityParser,FunctionParser,14,16-45,369",
+    "prv,method,FunctionParser,__init__,14,18-25,80",
+    "pub,method,FunctionParser,parse,14,27-45,275",
+    "pub,class,DepsParser,DepsParserShell,14,48-61,127",
+    "prv,method,DepsParserShell,_process_match,14,55-61,68",
+    "pub,class,ContentBlock,ContentShellScript,14,64-104,425",
+    "pub,method,ContentShellScript,parse_content,14,75-104,306",
+    "pub,class,EntityParser,ComponentParser,15,17-39,286",
+    "prv,method,ComponentParser,__init__,15,19-22,67",
+    "pub,method,ComponentParser,parse,15,24-39,205",
+    "pub,class,ContentBlock,ContentCodeVue,15,42-91,480",
+    "pub,method,ContentCodeVue,parse_content,15,56-91,326",
+    "pub,function,,dump_entities,17,20-24,46",
+    "pub,class,,TestParsersBrief,17,27-38,103",
+    "pub,method,TestParsersBrief,setUp,17,28-29,15",
+    "pub,method,TestParsersBrief,entity_check,17,31-33,52",
+    "pub,method,TestParsersBrief,test_rust_parser,17,35-38,24",
+    "pub,function,,test_vue_parser,17,62-65,24",
+    "pub,function,,test_shell_parser,17,87-90,24",
+    "pub,function,,test_python_parser,17,107-110,25",
+    "pub,function,,test_function,17,111-112,10",
+    "pub,class,,TestClass,17,114-116,18",
+    "pub,method,TestClass,test_method,17,115-116,12",
+    "pub,function,,test_js_parser,17,130-133,24",
+    "pub,function,,test_php_parser,17,165-168,24",
+    "pub,function,,test_parse_modules,18,25-40,143",
+    "pub,function,,test_protect_modules,18,43-62,100",
+    "pub,function,,simpleFunction,19,5-7,16",
+    "pub,function,,arrowFunction,19,10-12,22",
+    "pub,function,,exprFunction,19,15-17,23",
+    "pub,object,,myObject,19,20-26,31",
+    "pub,method,myObject,myMethod,19,22-24,5",
+    "pub,method,myObject,myComputed,19,31-33,5",
+    "pub,object,,module,19,39-45,38",
+    "pub,function,,incompleteString,19,42-45,26",
+    "pub,object,,s,19,43-50,35",
+    "pub,function,,simple_function,20,6-8,17",
+    "pub,class,,MyClass,20,11-19,65",
+    "pub,method,MyClass,my_method,20,12-14,11",
+    "pub,method,MyClass,sqli,20,15-17,8",
+    "pub,abstract method,MyClass,my_abstract_method,20,18-18,12",
+    "pub,function,,last_function,20,29-30,20",
+    "pub,function,,simple_function,21,5-9,28",
+    "pub,local_function,,local_inner,21,6-7,11",
+    "pub,class,,MyClass,21,12-18,32",
+    "pub,method,MyClass,my_method,21,13-14,11",
+    "pub,method,MyClass,my_classmethod,21,16-18,12",
+    "prv,function,,simple_function,22,3-6,27",
+    "prv,function,,raw_string_function,22,9-12,30",
+    "prv,function,,comment_function,22,15-18,30",
+    "prv,function,,single_comment_function,22,21-24,20",
+    "prv,structure,,Outer,22,27-29,17",
+    "prv,structure,,Inner,22,31-33,13",
+    "prv,function,,incomplete_string,22,36-39,27",
+    "prv,interface,Send + Sync,ExampleTrait,22,42-44,34",
+    "prv,method,ExampleTrait,trait_method,22,43-50,14",
+    "prv,class,,ExampleTrait<Outer>,22,46-50,38",
+    "pub,module,,logger,22,53-57,29",
+    "prv,function,,logger.logger_function,22,54-56,19",
+    "pub,module,,extra_module,22,60-67,47",
+    "prv,structure,,extra_module.ExtraStruct,22,61-63,18",
+    "prv,function,,extra_module.extra_function,22,64-66,18",
+    "prv,class,,Inner,22,69-74,33",
+    "prv,async method,Inner,new,22,70-73,15",
+    "prv,interface,,LoadEquityData,22,86-94,78",
+    "prv,async method,LoadEquityData,load_equity_data,22,87-97,64",
+    "prv,class,,LoadEquityData<MySqlDataSource>,22,98-180,741",
+    "pub,interface,,MyInterface,23,4-6,18",
+    "pub,class,,MyClass,23,8-12,24",
+    "pub,function,,code_block,24,17-30,165",
+    "prv,function,,_scan_log,24,33-36,47",
+    "pub,class,,TestJsParse,24,39-139,991",
+    "pub,method,TestJsParse,setUp,24,40-49,129",
+    "pub,method,TestJsParse,test_parse_content,24,51-94,368",
+    "pub,method,TestJsParse,test_incomplete_cases,24,96-104,82",
+    "pub,method,TestJsParse,test_js_template_string_no_escape,24,106-121,162",
+    "pub,method,TestJsParse,test_typescript_specific,24,124-139,239",
+    "pub,function,,entity_dump,25,13-14,26",
+    "pub,function,,code_block,25,17-32,131",
+    "pub,class,,TestPhpParse,25,34-68,339",
+    "pub,method,TestPhpParse,setUp,25,35-41,75",
+    "pub,method,TestPhpParse,test_parse_content,25,43-68,253",
+    "pub,function,,code_block,26,17-30,140",
+    "pub,class,,TestPyParse,26,32-92,577",
+    "pub,method,TestPyParse,setUp,26,33-42,116",
+    "pub,method,TestPyParse,test_parse_content,26,44-92,450",
+    "pub,function,,code_block,27,17-26,65",
+    "prv,function,,_scan_log,27,29-32,47",
+    "pub,class,,TestRustParse,27,35-107,647",
+    "pub,method,TestRustParse,setUp,27,36-45,117",
+    "pub,method,TestRustParse,test_parse_content,27,47-91,378",
+    "pub,method,TestRustParse,test_rust_raw_string_no_escape,27,93-107,140"
+  ],
+  "files": [
+    "0,/spack.py,75888932e5c12e41714e582e860150fc,1416,2025-08-07 08:36:29Z",
+    "1,/spack_verify.py,36fa555d1a158aeac89f25fe455985d5,1159,2025-08-06 15:48:54Z",
+    "2,/lib/code_stripper.py,e6a65dcd56b198354c017c25b6dff95b,2851,2025-08-06 10:30:03Z",
+    "3,/lib/content_block.py,b10ee1f821550623fd1633fca4d3b4e7,5672,2025-08-08 15:21:37Z",
+    "4,/lib/deps_builder.py,99307811effa026d03af424844d50339,1203,2025-08-08 13:25:05Z",
+    "5,/lib/document_block.py,6e968595e8865f1e50c5bd452d8cce6c,328,2025-07-15 12:56:33Z",
+    "6,/lib/entity_parser.py,50993ce1b4a16ad954680eea585bd281,3441,2025-08-09 16:28:14Z",
+    "7,/lib/iter_regex.py,a40f86df51088fe4cc83f867a6006bb8,1313,2025-08-09 14:31:00Z",
+    "8,/lib/js_block.py,67a21d31c69b0ad81a7c92d99809d637,3906,2025-08-09 15:41:29Z",
+    "9,/lib/llm_tools.py,203fafd667304f7b3220e0ef5acb5218,208,2025-08-05 09:55:32Z",
+    "10,/lib/php_block.py,e1681f6a7e571aac8a6aed107bbe1085,1824,2025-08-09 16:38:40Z",
+    "11,/lib/python_block.py,d97712bc7786c74c9082b908adf197ef,3145,2025-08-09 15:31:43Z",
+    "12,/lib/rust_block.py,7c7f7b2e335a1ba1fb9b7e857d6812fd,3713,2025-08-08 15:08:42Z",
+    "13,/lib/sandwich_pack.py,a0f5aefc26ba4eb1a4f2b45a514e23a2,3304,2025-08-08 06:09:47Z",
+    "14,/lib/shellscript_block.py,5098250db40d78a1f024516a76c66acf,1400,2025-08-09 15:21:01Z",
+    "15,/lib/vue_block.py,f23a4130b724632fe047a36dcf8362c9,1302,2025-08-09 15:43:36Z",
+    "16,/lib/__init__.py,074cf55a834c54634445ffec1561efc5,20,2025-07-15 06:32:56Z",
+    "17,/tests/brief_tests.py,e6e22245ddf66bf84452ccf19c84c121,2122,2025-08-09 15:16:19Z",
+    "18,/tests/regex_imports_php.py,570e7cea2bb6495deb1a3ddeb96be304,718,2025-08-03 08:01:14Z",
+    "19,/tests/test.js,3f4fb5b0b76ccf9e32b7d0fd2fc90f63,355,2025-08-02 09:04:08Z",
+    "20,/tests/test.php,216fe13e8200d647134d45b633e5aa49,205,2025-08-06 09:54:23Z",
+    "21,/tests/test.py,e66e2fecf8c51c71fa539e202f5787ec,133,2025-08-04 09:40:17Z",
+    "22,/tests/test.rs,535d66412b561d4854d66d846b39f452,1691,2025-08-08 15:00:13Z",
+    "23,/tests/test.ts,b381efcb43350bd42bb39fb49de0a79a,81,2025-08-02 06:22:30Z",
+    "24,/tests/test_js_parse.py,cdf881a06858c32d39d834874bd389ff,1999,2025-08-02 08:08:27Z",
+    "25,/tests/test_php_parse.py,6b92921d34ff70d097997cee025fd276,855,2025-08-09 15:47:40Z",
+    "26,/tests/test_py_parse.py,74980d75b14cff997096353ba425281a,1230,2025-08-04 08:28:15Z",
+    "27,/tests/test_rust_parse.py,c4aaa2335248a4dfdce41e6c9e404de0,1294,2025-08-08 11:25:19Z"
+  ],
+  "users": []
+}

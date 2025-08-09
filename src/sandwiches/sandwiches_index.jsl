@@ -1,0 +1,729 @@
+{
+  "packer_version": "0.6",
+  "context_date": "2025-08-09 16:40:12Z",
+  "templates": {
+    "filelist": "file_id,file_name,md5,tokens,timestamp",
+    "users": "user_id,username,role",
+    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens"
+  },
+  "project_name": "sandwich_pack",
+  "datasheet": {
+    "project_root": "/app",
+    "backend_address": "http://localhost:8080",
+    "frontend_address": "http://vps.vpn:8008",
+    "resources": {
+      "database": "sqlite:///app/data/multichat.db",
+      "log_file": "/app/logs/colloquium_core.log"
+    }
+  },
+  "entities": [
+    "pub,function,,get_file_mod_time,0,11-14,54",
+    "pub,function,,is_hidden_file,0,16-17,30",
+    "pub,function,,collect_files,0,19-71,493",
+    "pub,function,,main,0,73-106,333",
+    "pub,function,,verify_sandwiches,1,14-75,486",
+    "pub,class,ABC,CodeStripper,2,10-104,878",
+    "prv,method,CodeStripper,__init__,2,12-19,68",
+    "pub,method,CodeStripper,detect_single,2,21-24,36",
+    "pub,method,CodeStripper,detect_multi_open,2,26-29,24",
+    "pub,method,CodeStripper,detect_multi_close,2,31-34,37",
+    "pub,method,CodeStripper,strip,2,36-104,687",
+    "pub,class,CodeStripper,CodeStringStripper,2,106-166,740",
+    "pub,class,CodeStripper,CodeCommentStripper,2,168-198,392",
+    "pub,class,,ContentBlock,3,22-384,3724",
+    "prv,method,ContentBlock,__init__,3,25-54,360",
+    "pub,method,ContentBlock,parse_warn,3,56-59,27",
+    "pub,method,ContentBlock,strip_strings,3,61-78,175",
+    "pub,method,ContentBlock,strip_comments,3,80-94,136",
+    "pub,method,ContentBlock,save_clean,3,96-108,144",
+    "pub,method,ContentBlock,get_clean_content,3,110-121,105",
+    "pub,method,ContentBlock,find_line,3,123-130,81",
+    "pub,method,ContentBlock,count_chars,3,132-142,109",
+    "pub,method,ContentBlock,sorted_entities,3,144-152,87",
+    "pub,method,ContentBlock,detect_bounds,3,154-178,271",
+    "pub,method,ContentBlock,check_entity_placement,3,180-200,240",
+    "pub,method,ContentBlock,add_entity,3,202-217,190",
+    "pub,method,ContentBlock,extract_entity_text,3,219-228,132",
+    "pub,method,ContentBlock,extend_deps,3,230-241,118",
+    "pub,method,ContentBlock,full_text_replace,3,243-273,371",
+    "pub,method,ContentBlock,compress,3,275-360,973",
+    "pub,method,ContentBlock,to_sandwich_block,3,362-381,156",
+    "pub,method,ContentBlock,parse_content,3,383-384,30",
+    "pub,class,EntityParser,DepsParser,4,11-36,226",
+    "prv,method,DepsParser,__init__,4,13-16,58",
+    "pub,method,DepsParser,add_module,4,18-22,44",
+    "pub,method,DepsParser,add_import,4,24-28,47",
+    "pub,method,DepsParser,store_deps,4,30-36,64",
+    "pub,function,,organize_modules,4,39-100,629",
+    "pub,local_function,,dfs,4,67-77,20",
+    "pub,class,ContentBlock,DocumentBlock,5,9-30,173",
+    "prv,method,DocumentBlock,__init__,5,12-20,105",
+    "pub,method,DocumentBlock,parse_content,5,22-30,42",
+    "pub,function,,match_value,6,11-14,53",
+    "pub,function,,get_start_pos,6,17-18,53",
+    "pub,class,,EntityParser,6,21-258,2486",
+    "prv,method,EntityParser,__init__,6,24-46,340",
+    "prv,method,EntityParser,_format_entity_name,6,48-55,88",
+    "prv,method,EntityParser,_format_inner_name,6,57-58,26",
+    "pub,method,EntityParser,make_entity,6,60-90,333",
+    "pub,method,EntityParser,make_add_entity,6,92-115,273",
+    "pub,method,EntityParser,detect_abstract,6,117-121,67",
+    "pub,method,EntityParser,detect_visibility,6,123-124,32",
+    "prv,method,EntityParser,_process_match,6,126-172,470",
+    "pub,method,EntityParser,parse,6,174-191,152",
+    "pub,method,EntityParser,parse_inner,6,193-243,559",
+    "pub,method,EntityParser,masquerade,6,245-258,136",
+    "pub,class,,IterativeRegex,7,8-113,846",
+    "prv,method,IterativeRegex,__init__,7,11-14,27",
+    "pub,method,IterativeRegex,add_token,7,16-31,170",
+    "pub,method,IterativeRegex,all_matches,7,33-55,165",
+    "pub,method,IterativeRegex,validate_match,7,57-113,474",
+    "pub,class,EntityParser,ObjectParser,8,28-57,358",
+    "prv,method,ObjectParser,__init__,8,30-34,87",
+    "prv,method,ObjectParser,_format_entity_name,8,36-38,40",
+    "pub,method,ObjectParser,parse,8,40-57,218",
+    "pub,class,EntityParser,MethodParser,8,60-108,510",
+    "pub,class,EntityParser,FunctionParser,8,111-141,371",
+    "pub,class,EntityParser,InterfaceParser,8,144-151,116",
+    "pub,class,EntityParser,ClassParser,8,154-161,114",
+    "pub,class,DepsParser,DepsParserJs,8,164-188,254",
+    "prv,method,DepsParserJs,_process_match,8,174-188,152",
+    "pub,class,ContentBlock,ContentCodeJs,8,191-239,467",
+    "pub,method,ContentCodeJs,parse_content,8,204-239,325",
+    "pub,class,ContentCodeJs,ContentCodeTypeScript,8,242-288,443",
+    "pub,function,,estimate_tokens,9,7-22,138",
+    "pub,class,EntityParser,ClassParser,10,30-40,106",
+    "prv,method,ClassParser,__init__,10,32-40,93",
+    "pub,class,EntityParser,FunctionParser,10,43-46,54",
+    "pub,class,DepsParser,DepsParserPHP,10,49-68,158",
+    "prv,method,DepsParserPHP,_process_match,10,61-68,85",
+    "pub,class,ContentBlock,ContentCodePHP,10,70-150,737",
+    "pub,method,ContentCodePHP,strip_strings,10,91-105,96",
+    "pub,method,ContentCodePHP,check_raw_escape,10,108-113,111",
+    "pub,method,ContentCodePHP,parse_content,10,115-150,326",
+    "pub,class,EntityParser,ClassParser,11,21-49,397",
+    "prv,method,ClassParser,__init__,11,23-28,103",
+    "pub,method,ClassParser,parse,11,30-49,281",
+    "pub,class,EntityParser,FunctionParser,11,52-103,666",
+    "prv,method,FunctionParser,_format_entity_name,11,61-62,21",
+    "pub,class,DepsParser,DepsParserPython,11,106-127,194",
+    "pub,class,ContentBlock,ContentCodePython,11,130-227,1040",
+    "pub,method,ContentCodePython,detect_bounds,11,147-190,503",
+    "pub,method,ContentCodePython,parse_content,11,192-227,327",
+    "pub,class,EntityParser,ModuleParser,12,22-66,552",
+    "prv,method,ModuleParser,__init__,12,24-28,88",
+    "prv,method,ModuleParser,_process_match,12,30-66,451",
+    "pub,class,EntityParser,TraitParser,12,69-83,199",
+    "pub,class,EntityParser,TraitImplParser,12,86-109,261",
+    "prv,method,TraitImplParser,_format_entity_name,12,104-109,56",
+    "pub,class,EntityParser,FunctionParser,12,112-120,132",
+    "pub,class,DepsParser,DepsParserRust,12,123-194,576",
+    "pub,method,DepsParserRust,process_imports,12,145-183,365",
+    "pub,class,ContentBlock,ContentCodeRust,12,199-279,787",
+    "pub,method,ContentCodeRust,check_lines_match,12,214-227,171",
+    "pub,method,ContentCodeRust,count_chars,12,229-238,109",
+    "pub,method,ContentCodeRust,parse_content,12,240-279,343",
+    "pub,function,,compute_md5,13,18-19,28",
+    "pub,class,,SandwichPack,13,22-274,2379",
+    "prv,method,SandwichPack,__init__,13,25-41,183",
+    "pub,method,SandwichPack,register_block_class,13,43-46,32",
+    "pub,method,SandwichPack,load_block_classes,13,48-63,160",
+    "pub,method,SandwichPack,supported_type,13,65-72,84",
+    "pub,class,EntityParser,FunctionParser,14,16-45,369",
+    "prv,method,FunctionParser,__init__,14,18-25,80",
+    "pub,method,FunctionParser,parse,14,27-45,275",
+    "pub,class,DepsParser,DepsParserShell,14,48-61,127",
+    "prv,method,DepsParserShell,_process_match,14,55-61,68",
+    "pub,class,ContentBlock,ContentShellScript,14,64-104,425",
+    "pub,method,ContentShellScript,parse_content,14,75-104,306",
+    "pub,class,EntityParser,ComponentParser,15,17-39,286",
+    "prv,method,ComponentParser,__init__,15,19-22,67",
+    "pub,method,ComponentParser,parse,15,24-39,205",
+    "pub,class,ContentBlock,ContentCodeVue,15,42-91,480",
+    "pub,method,ContentCodeVue,parse_content,15,56-91,326",
+    "pub,function,,dump_entities,17,20-24,46",
+    "pub,class,,TestParsersBrief,17,27-38,103",
+    "pub,method,TestParsersBrief,setUp,17,28-29,15",
+    "pub,method,TestParsersBrief,entity_check,17,31-33,52",
+    "pub,method,TestParsersBrief,test_rust_parser,17,35-38,24",
+    "pub,function,,test_vue_parser,17,62-65,24",
+    "pub,function,,test_shell_parser,17,87-90,24",
+    "pub,function,,test_python_parser,17,107-110,25",
+    "pub,function,,test_function,17,111-112,10",
+    "pub,class,,TestClass,17,114-116,18",
+    "pub,method,TestClass,test_method,17,115-116,12",
+    "pub,function,,test_js_parser,17,130-133,24",
+    "pub,function,,test_php_parser,17,165-168,24",
+    "pub,function,,test_parse_modules,18,25-40,143",
+    "pub,function,,test_protect_modules,18,43-62,100",
+    "pub,function,,simpleFunction,19,5-7,16",
+    "pub,function,,arrowFunction,19,10-12,22",
+    "pub,function,,exprFunction,19,15-17,23",
+    "pub,object,,myObject,19,20-26,31",
+    "pub,method,myObject,myMethod,19,22-24,5",
+    "pub,method,myObject,myComputed,19,31-33,5",
+    "pub,object,,module,19,39-45,38",
+    "pub,function,,incompleteString,19,42-45,26",
+    "pub,object,,s,19,43-50,35",
+    "pub,function,,simple_function,20,6-8,17",
+    "pub,class,,MyClass,20,11-19,65",
+    "pub,method,MyClass,my_method,20,12-14,11",
+    "pub,method,MyClass,sqli,20,15-17,8",
+    "pub,abstract method,MyClass,my_abstract_method,20,18-18,12",
+    "pub,function,,last_function,20,29-30,20",
+    "pub,function,,simple_function,21,5-9,28",
+    "pub,local_function,,local_inner,21,6-7,11",
+    "pub,class,,MyClass,21,12-18,32",
+    "pub,method,MyClass,my_method,21,13-14,11",
+    "pub,method,MyClass,my_classmethod,21,16-18,12",
+    "prv,function,,simple_function,22,3-6,27",
+    "prv,function,,raw_string_function,22,9-12,30",
+    "prv,function,,comment_function,22,15-18,30",
+    "prv,function,,single_comment_function,22,21-24,20",
+    "prv,structure,,Outer,22,27-29,17",
+    "prv,structure,,Inner,22,31-33,13",
+    "prv,function,,incomplete_string,22,36-39,27",
+    "prv,interface,Send + Sync,ExampleTrait,22,42-44,34",
+    "prv,method,ExampleTrait,trait_method,22,43-50,14",
+    "prv,class,,ExampleTrait<Outer>,22,46-50,38",
+    "pub,module,,logger,22,53-57,29",
+    "prv,function,,logger.logger_function,22,54-56,19",
+    "pub,module,,extra_module,22,60-67,47",
+    "prv,structure,,extra_module.ExtraStruct,22,61-63,18",
+    "prv,function,,extra_module.extra_function,22,64-66,18",
+    "prv,class,,Inner,22,69-74,33",
+    "prv,async method,Inner,new,22,70-73,15",
+    "prv,interface,,LoadEquityData,22,86-94,78",
+    "prv,async method,LoadEquityData,load_equity_data,22,87-97,64",
+    "prv,class,,LoadEquityData<MySqlDataSource>,22,98-180,741",
+    "pub,interface,,MyInterface,23,4-6,18",
+    "pub,class,,MyClass,23,8-12,24",
+    "pub,function,,code_block,24,17-30,165",
+    "prv,function,,_scan_log,24,33-36,47",
+    "pub,class,,TestJsParse,24,39-139,991",
+    "pub,method,TestJsParse,setUp,24,40-49,129",
+    "pub,method,TestJsParse,test_parse_content,24,51-94,368",
+    "pub,method,TestJsParse,test_incomplete_cases,24,96-104,82",
+    "pub,method,TestJsParse,test_js_template_string_no_escape,24,106-121,162",
+    "pub,method,TestJsParse,test_typescript_specific,24,124-139,239",
+    "pub,function,,entity_dump,25,13-14,26",
+    "pub,function,,code_block,25,17-32,131",
+    "pub,class,,TestPhpParse,25,34-68,339",
+    "pub,method,TestPhpParse,setUp,25,35-41,75",
+    "pub,method,TestPhpParse,test_parse_content,25,43-68,253",
+    "pub,function,,code_block,26,17-30,140",
+    "pub,class,,TestPyParse,26,32-92,577",
+    "pub,method,TestPyParse,setUp,26,33-42,116",
+    "pub,method,TestPyParse,test_parse_content,26,44-92,450",
+    "pub,function,,code_block,27,17-26,65",
+    "prv,function,,_scan_log,27,29-32,47",
+    "pub,class,,TestRustParse,27,35-107,647",
+    "pub,method,TestRustParse,setUp,27,36-45,117",
+    "pub,method,TestRustParse,test_parse_content,27,47-91,378",
+    "pub,method,TestRustParse,test_rust_raw_string_no_escape,27,93-107,140"
+  ],
+  "files": [
+    "0,/spack.py,75888932e5c12e41714e582e860150fc,1416,2025-08-07 08:36:29Z",
+    "1,/spack_verify.py,36fa555d1a158aeac89f25fe455985d5,1159,2025-08-06 15:48:54Z",
+    "2,/lib/code_stripper.py,e6a65dcd56b198354c017c25b6dff95b,2851,2025-08-06 10:30:03Z",
+    "3,/lib/content_block.py,b10ee1f821550623fd1633fca4d3b4e7,5672,2025-08-08 15:21:37Z",
+    "4,/lib/deps_builder.py,99307811effa026d03af424844d50339,1203,2025-08-08 13:25:05Z",
+    "5,/lib/document_block.py,6e968595e8865f1e50c5bd452d8cce6c,328,2025-07-15 12:56:33Z",
+    "6,/lib/entity_parser.py,50993ce1b4a16ad954680eea585bd281,3441,2025-08-09 16:28:14Z",
+    "7,/lib/iter_regex.py,a40f86df51088fe4cc83f867a6006bb8,1313,2025-08-09 14:31:00Z",
+    "8,/lib/js_block.py,67a21d31c69b0ad81a7c92d99809d637,3906,2025-08-09 15:41:29Z",
+    "9,/lib/llm_tools.py,203fafd667304f7b3220e0ef5acb5218,208,2025-08-05 09:55:32Z",
+    "10,/lib/php_block.py,e1681f6a7e571aac8a6aed107bbe1085,1824,2025-08-09 16:38:40Z",
+    "11,/lib/python_block.py,d97712bc7786c74c9082b908adf197ef,3145,2025-08-09 15:31:43Z",
+    "12,/lib/rust_block.py,7c7f7b2e335a1ba1fb9b7e857d6812fd,3713,2025-08-08 15:08:42Z",
+    "13,/lib/sandwich_pack.py,a0f5aefc26ba4eb1a4f2b45a514e23a2,3304,2025-08-08 06:09:47Z",
+    "14,/lib/shellscript_block.py,5098250db40d78a1f024516a76c66acf,1400,2025-08-09 15:21:01Z",
+    "15,/lib/vue_block.py,f23a4130b724632fe047a36dcf8362c9,1302,2025-08-09 15:43:36Z",
+    "16,/lib/__init__.py,074cf55a834c54634445ffec1561efc5,20,2025-07-15 06:32:56Z",
+    "17,/tests/brief_tests.py,e6e22245ddf66bf84452ccf19c84c121,2122,2025-08-09 15:16:19Z",
+    "18,/tests/regex_imports_php.py,570e7cea2bb6495deb1a3ddeb96be304,718,2025-08-03 08:01:14Z",
+    "19,/tests/test.js,3f4fb5b0b76ccf9e32b7d0fd2fc90f63,355,2025-08-02 09:04:08Z",
+    "20,/tests/test.php,216fe13e8200d647134d45b633e5aa49,205,2025-08-06 09:54:23Z",
+    "21,/tests/test.py,e66e2fecf8c51c71fa539e202f5787ec,133,2025-08-04 09:40:17Z",
+    "22,/tests/test.rs,535d66412b561d4854d66d846b39f452,1691,2025-08-08 15:00:13Z",
+    "23,/tests/test.ts,b381efcb43350bd42bb39fb49de0a79a,81,2025-08-02 06:22:30Z",
+    "24,/tests/test_js_parse.py,cdf881a06858c32d39d834874bd389ff,1999,2025-08-02 08:08:27Z",
+    "25,/tests/test_php_parse.py,6b92921d34ff70d097997cee025fd276,855,2025-08-09 15:47:40Z",
+    "26,/tests/test_py_parse.py,74980d75b14cff997096353ba425281a,1230,2025-08-04 08:28:15Z",
+    "27,/tests/test_rust_parse.py,c4aaa2335248a4dfdce41e6c9e404de0,1294,2025-08-08 11:25:19Z"
+  ],
+  "users": []
+}STRUCTURE: {
+  "templates": {
+    "entities": "vis(pub/prv),type,parent,name,file_id,start_line-end_line,tokens",
+    "modules": "module_name"
+  },
+  "dep_format": "modules: index (int) referencing modules list; imports: tuple (file_id, entity_name) referencing entities list",
+  "modules": [
+    "argparse",
+    "pathlib",
+    "lib.sandwich_pack",
+    "logging",
+    "os",
+    "datetime",
+    "json",
+    "re",
+    "abc",
+    ".code_stripper",
+    ".deps_builder",
+    "math",
+    ".llm_tools",
+    ".entity_parser",
+    "typing",
+    "lib.content_block",
+    ".iter_regex",
+    "traceback",
+    "lib.entity_parser",
+    "lib.deps_builder",
+    "lib.iter_regex",
+    "lib.js_block",
+    "lib.rust_block",
+    "lib.python_block",
+    "lib.php_block",
+    "lib.shellscript_block",
+    "lib.vue_block",
+    "unittest",
+    "my_module",
+    "chrono",
+    "entities::account_data",
+    "async_trait",
+    "entities::account"
+  ],
+  "sandwiches": [
+    {
+      "file": "sandwich_1.txt",
+      "blocks": [
+        {
+          "start_line": 1,
+          "file_id": 0,
+          "entities": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "start_line": 113,
+          "file_id": 1,
+          "entities": [
+            4
+          ]
+        },
+        {
+          "start_line": 198,
+          "file_id": 2,
+          "entities": [
+            5,
+            6,
+            6,
+            6,
+            7,
+            7,
+            7,
+            8,
+            8,
+            8,
+            9,
+            9,
+            9,
+            10,
+            11,
+            12
+          ]
+        },
+        {
+          "start_line": 398,
+          "file_id": 3,
+          "entities": [
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31
+          ]
+        },
+        {
+          "start_line": 785,
+          "file_id": 4,
+          "entities": [
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38
+          ]
+        }
+      ]
+    },
+    {
+      "file": "sandwich_2.txt",
+      "blocks": [
+        {
+          "start_line": 1,
+          "file_id": 5,
+          "entities": [
+            39,
+            40,
+            41
+          ]
+        },
+        {
+          "start_line": 35,
+          "file_id": 6,
+          "entities": [
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55
+          ]
+        },
+        {
+          "start_line": 296,
+          "file_id": 7,
+          "entities": [
+            56,
+            57,
+            58,
+            59,
+            60
+          ]
+        },
+        {
+          "start_line": 411,
+          "file_id": 8,
+          "entities": [
+            61,
+            62,
+            62,
+            62,
+            62,
+            62,
+            62,
+            62,
+            62,
+            63,
+            63,
+            63,
+            64,
+            64,
+            64,
+            65,
+            66,
+            67,
+            68,
+            69,
+            70,
+            71,
+            72,
+            72,
+            73
+          ]
+        },
+        {
+          "start_line": 705,
+          "file_id": 9,
+          "entities": [
+            74
+          ]
+        },
+        {
+          "start_line": 730,
+          "file_id": 10,
+          "entities": [
+            75,
+            76,
+            76,
+            76,
+            76,
+            77,
+            78,
+            79,
+            80,
+            81,
+            82,
+            83
+          ]
+        }
+      ]
+    },
+    {
+      "file": "sandwich_3.txt",
+      "blocks": [
+        {
+          "start_line": 1,
+          "file_id": 11,
+          "entities": [
+            84,
+            85,
+            85,
+            85,
+            85,
+            86,
+            86,
+            86,
+            87,
+            88,
+            89,
+            90,
+            91,
+            92
+          ]
+        },
+        {
+          "start_line": 233,
+          "file_id": 12,
+          "entities": [
+            93,
+            94,
+            94,
+            94,
+            94,
+            94,
+            94,
+            95,
+            95,
+            96,
+            97,
+            98,
+            99,
+            100,
+            101,
+            102,
+            103,
+            104,
+            105
+          ]
+        },
+        {
+          "start_line": 517,
+          "file_id": 13,
+          "entities": [
+            106,
+            107,
+            108,
+            109,
+            110,
+            111
+          ]
+        },
+        {
+          "start_line": 793,
+          "file_id": 14,
+          "entities": [
+            112,
+            113,
+            113,
+            113,
+            114,
+            115,
+            116,
+            117,
+            118
+          ]
+        }
+      ]
+    },
+    {
+      "file": "sandwich_4.txt",
+      "blocks": [
+        {
+          "start_line": 1,
+          "file_id": 15,
+          "entities": [
+            119,
+            120,
+            120,
+            121,
+            122,
+            123
+          ]
+        },
+        {
+          "start_line": 97,
+          "file_id": 16
+        },
+        {
+          "start_line": 102,
+          "file_id": 17,
+          "entities": [
+            124,
+            125,
+            126,
+            127,
+            128,
+            129,
+            130,
+            131,
+            132,
+            133,
+            133,
+            134,
+            135,
+            136
+          ]
+        },
+        {
+          "start_line": 298,
+          "file_id": 18,
+          "entities": [
+            137,
+            138
+          ]
+        },
+        {
+          "start_line": 367,
+          "file_id": 19,
+          "entities": [
+            139,
+            140,
+            141,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147
+          ]
+        },
+        {
+          "start_line": 425,
+          "file_id": 20,
+          "entities": [
+            148,
+            149,
+            150,
+            151,
+            152,
+            153
+          ]
+        },
+        {
+          "start_line": 458,
+          "file_id": 21,
+          "entities": [
+            154,
+            155,
+            156,
+            157,
+            158
+          ]
+        },
+        {
+          "start_line": 481,
+          "file_id": 22,
+          "entities": [
+            159,
+            160,
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            167,
+            168,
+            169,
+            170,
+            171,
+            172,
+            173,
+            174,
+            175,
+            176,
+            177,
+            177,
+            178
+          ]
+        },
+        {
+          "start_line": 663,
+          "file_id": 23,
+          "entities": [
+            179,
+            180
+          ]
+        },
+        {
+          "start_line": 678,
+          "file_id": 24,
+          "entities": [
+            181,
+            182,
+            183,
+            184,
+            185,
+            186,
+            187,
+            188
+          ]
+        },
+        {
+          "start_line": 822,
+          "file_id": 25,
+          "entities": [
+            189,
+            190,
+            191,
+            192,
+            193
+          ]
+        },
+        {
+          "start_line": 895,
+          "file_id": 26,
+          "entities": [
+            194,
+            195,
+            196,
+            197
+          ]
+        },
+        {
+          "start_line": 992,
+          "file_id": 27,
+          "entities": [
+            198,
+            199,
+            200,
+            201,
+            202,
+            203
+          ]
+        }
+      ]
+    }
+  ]
+}

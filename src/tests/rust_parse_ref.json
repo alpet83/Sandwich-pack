@@ -15,8 +15,7 @@
       "visibility": "public",
       "file_id": null,
       "first_line": 9,
-      "last_line": 12,
-      "tokens": 30
+      "last_line": 12
     },
     {
       "type": "function",
@@ -24,8 +23,7 @@
       "visibility": "public",
       "file_id": null,
       "first_line": 15,
-      "last_line": 18,
-      "tokens": 18
+      "last_line": 18
     },
     {
       "type": "function",
@@ -69,17 +67,16 @@
       "visibility": "public",
       "file_id": null,
       "first_line": 42,
-      "last_line": 44,
-      "tokens": 20
+      "last_line": 44
     },
     {
       "type": "abstract method",
-      "name": "ExampleTrait::trait_method",
+      "name": "trait_method",
       "visibility": "private",
+      "parent": "ExampleTrait",
       "file_id": null,
       "first_line": 43,
-      "last_line": 43,
-      "tokens": 8
+      "last_line": 43
     },
     {
       "type": "class",
@@ -87,17 +84,16 @@
       "visibility": "private",
       "file_id": null,
       "first_line": 46,
-      "last_line": 50,
-      "tokens": 31
+      "last_line": 50
     },
     {
       "type": "method",
-      "name": "ExampleTrait<Outer>::trait_method",
+      "name": "trait_method",
+      "parent": "ExampleTrait<Outer>",
       "visibility": "private",
       "file_id": null,
       "first_line": 47,
-      "last_line": 49,
-      "tokens": 10
+      "last_line": 49
     },
     {
       "type": "module",
@@ -145,12 +141,29 @@
       "tokens": 18
     },
     {
+      "type": "class",
+      "name": "Inner",
+      "visibility": "private",
+      "file_id": null,
+      "first_line": 69,
+      "last_line": 74          
+    },
+    {
+      "type": "async method",
+      "name": "new",
+      "parent": "Inner",
+      "visibility": "public",
+      "file_id": null,
+      "first_line": 70,
+      "last_line": 73
+    },
+    {
       "type": "function",
       "name": "incomplete_comment",
       "visibility": "public",
       "file_id": null,
-      "first_line": 70,
-      "last_line": 70,
+      "first_line": 77,
+      "last_line": 77,
       "tokens": 11
     }
   ]
