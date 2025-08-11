@@ -113,9 +113,15 @@ class SandwichPack:
                     file_blocks += 1
 
             logging.debug(f"Pack started: input {len(blocks)} included {file_blocks} files blocks")
+            # first sandwich part is chat messages
+            for block in blocks:
+                if block.content_type == ":post":
+                    parsed_blocks.append((block, {}))
 
             for block in blocks:
-                if block.content_type != ":post" and block.file_name:
+                if block.content_type == ":post":
+                    continue
+                if block.file_name:
                     # file_id - четко указывает на ссылку файла из БД, он привязан к блоку намертво
                     file_id = block.file_id if block.file_id is not None else self.generate_unique_file_id()
                     file_map[block.file_name] = file_id
