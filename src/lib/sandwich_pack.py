@@ -26,6 +26,7 @@ class SandwichPack:
         self.project_name = project_name
         self.max_size = max_size
         self.token_limit = token_limit
+        self.entities = []   # unpacked list, with records
         self.entity_rev_map = {}
         self.system_prompt = system_prompt
         self.compression = compression
@@ -100,6 +101,7 @@ class SandwichPack:
             file_map = {}
             file_list = []
             entity_stor = {}
+            self.entities = []
             entities_list = []
             name_to_locations = {}
             module_map = {}
@@ -152,6 +154,8 @@ class SandwichPack:
                             start_line = ent["first_line"]
                             end_line = ent["last_line"]
                             parent = ent.get("parent", "")
+                            ent['file_id'] = file_id  # for outside using
+                            self.entities.append(ent)
                             entities_list.append(
                                 f"{vis_short},{e_type},{parent},{name},{file_id},{start_line}-{end_line},{ent['tokens']}"
                             )
@@ -229,28 +233,23 @@ class SandwichPack:
                     current_line = 1
 
                 block_data = {
-                    "start_line": current_line
+                    # "start_line": current_line
                 }
                 if block.content_type == ":post":
-                    block_data["post_id"] = block.post_id
+                    block_data["post_" + str(block.post_id)] = current_line
                 elif block.file_id is not None:
-                    block_data["file_id"] = block.file_id
+                    block_data["file_" + str(block.file_id)] = current_line
                 if parsed.get('modules'):
-                    block_data["modules"] = [module_map[module] for module in parsed["modules"]]
+                    block_data["modules"] = [module_map[module] for module in parsed["modules"]]  # module ids
                 if parsed.get('imports'):
-                    block_data["imports"] = []
+                    imp_map = {}
+                    # TODO: много вложенности, надо оптимизировать
                     for ent_name, mod_name in parsed["imports"].items():
-                        mod_path = f"/{mod_name.replace('.', '/')}.py" if mod_name.startswith('lib.') else f"/tests/{mod_name}.py"
-                        mod_file_id = file_map.get(mod_path)
-                        for ent_type in ("function", "interface", "class", "struct", "method", "module", "component", "object"):
-                            idx = self.find_entity(ent_type, ent_name, mod_file_id)
-                            if idx >= 0:
-                                block_data["imports"].append((mod_file_id, ent_name))
-                                break
-                        else:
-                            if block.file_name and "/tests/" in block.file_name:
-                                block_data["imports"].append((mod_file_id, ent_name))
-                    block_data["imports"].sort()
+                        mod_idx = module_map.get(mod_name, -1)
+                        if mod_idx >= 0:
+                            imp_map[ent_name] = mod_idx
+
+                    block_data["imports"] = imp_map
                 if block.file_name and parsed["entities"]:
                     ent_uids = [entity_stor[(block.file_name, e["type"], e["name"])] for e in parsed["entities"]]
                     block_data["entities"] = sorted(ent_uids)

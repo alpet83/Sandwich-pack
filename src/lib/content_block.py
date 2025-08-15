@@ -7,6 +7,7 @@ import logging
 import re
 import os
 import math
+from datetime import datetime
 from pathlib import Path
 from .deps_builder import DepsParser
 from .llm_tools import estimate_tokens
@@ -18,6 +19,7 @@ Optional = List = Tuple = Dict = None
 logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'DEBUG').upper()
 )
+
 
 class ContentBlock:
     supported_types = [':document', ':post']
@@ -51,7 +53,7 @@ class ContentBlock:
         self.escape_char = "\\"
         self.module_prefix = ""
         self.line_offsets = []
-        logging.debug(f"Initialized ContentBlock with content_type={content_type}, tag={self.tag}, file_name={file_name}")
+        logging.debug(f"Initialized base of {type(self).__name__} with content_type={content_type}, tag={self.tag}, file_name={file_name}")
 
     def parse_warn(self, msg):
         """Logs a warning and adds it to self.warnings."""
@@ -240,7 +242,7 @@ class ContentBlock:
         self.dependencies['modules'] = list(unique)
         self.dependencies['imports'].update(i)
 
-    def full_text_replace(self, from_str: str, entity_id: int, ent_type: str, is_definition: bool = False) -> str:
+    def full_text_replace(self, from_str: str, entity_id: int, ent_type: str, is_definition: bool = False):
         """Performs context-aware replacement of entity names with \x0F<entity_id>.
 
         Args:
@@ -271,6 +273,7 @@ class ContentBlock:
         else:
             logging.debug(f"Replaced '{from_str}' with '\x0F{entity_id}' in {self.file_name} (type={ent_type}, is_definition={is_definition})")
             self.content_text = compressed
+        return self.content_text
 
     def compress(self, entity_rev_map, file_map: dict):
         """Compresses entity names in content_text to their global indexes prefixed with ANSI \x0F.
@@ -382,3 +385,26 @@ class ContentBlock:
 
     def parse_content(self, clean_lines=None, depth=0):
         return {"entities": [], "dependencies": self.dependencies}
+
+
+class SpanBlock(ContentBlock):
+    supported_types = [':code_span', ':file_span']
+
+    def __init__(self, content_text: str, file_id: int, block_hash: str, meta: dict):
+        super().__init__(content_text, ":file_span", file_name=None, timestamp=None)
+        self.tag = "file_span"
+        self.meta = meta
+        self.file_id = file_id
+        self.block_hash = block_hash
+
+    def to_sandwich_block(self):
+        meta = self.meta
+        timestamp = meta.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%SZ"))
+        start_line = meta.get('start', -1)
+        end_line = meta.get('end', -1)
+        if start_line < 0 or end_line < 0:
+            logging.error(f"Invalid metadata {meta}")
+            return f"<error msg='Wrong span metadata'>{meta}</error>"
+        return f'<{self.tag} file_id="{self.file_id}" start="{start_line}" end="{end_line}" hash="{self.block_hash}" timestamp="{timestamp}">\n ' + \
+               f'{self.content_text}\n</{self.tag}>'
+
