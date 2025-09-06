@@ -63,7 +63,7 @@ class DepsParserShell(DepsParser):
 
 class ContentShellScript(ContentBlock):
     """Parser for Shell script content blocks."""
-    supported_types = [".sh"]
+    supported_types = ['.sh', '.bashrc', '.profile']
 
     def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
         super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
