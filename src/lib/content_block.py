@@ -62,6 +62,11 @@ class ContentBlock:
 
     def strip_strings(self):
         """Strips string literals using CodeStringStripper."""
+        if len(self.content_text) < 3:
+            logging.warning("Void/tiny code file detected, no strip perform")
+            self.clean_lines = ['', '']
+            return self.clean_lines
+
         if len(self.clean_lines) <= 1:
             self.clean_lines = [''] + self.content_text.splitlines()
         stripper = CodeStringStripper(
