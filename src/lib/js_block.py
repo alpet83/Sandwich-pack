@@ -24,6 +24,8 @@ CLASS_REGEX_PATTERN = r"class\s+(?P<name>\w+)"
 INTERFACE_REGEX_PATTERN = r"interface\s+(?P<name>\w+)"
 OBJECT_REGEX_PATTERN = r"const\s+(?P<name>\w+)\s*="
 METHODS_REGEX_PATTERN = r"(?:methods|computed|watch)\s*:"
+# Negative lookahead to avoid matching JS/TS keywords as method names
+TS_KEYWORD_EXCLUSION = r'(?!(?:if|for|while|switch|return|throw|catch|else|try|do|typeof|instanceof|void|await|delete|of|in)\b)'
 
 class ObjectParser(EntityParser):
     """Parser for JavaScript object declarations."""
@@ -158,7 +160,23 @@ class ClassParser(EntityParser):
         outer_regex.add_token(BASE_REGEX_PATTERN + CLASS_REGEX_PATTERN, ["indent", "vis", "name"], 2)
         outer_regex.add_token(r"\s+extends\s+(?P<parent>\w+)", ["parent"], 1)
         outer_regex.add_token(r"\s*{", ["head_end"], 1)
-        super().__init__(entity_type, owner, outer_regex, r"\bclass\b", default_visibility="public")
+
+        inner_regex = IterativeRegex()
+        inner_regex \
+            .add_token(
+                r'^(?P<indent>[ \t]+)'
+                r'(?:(?P<vis>public|private|protected)\s+)?'
+                r'(?:static\s+)?'
+                r'(?P<async>async\s+)?'
+                + TS_KEYWORD_EXCLUSION +
+                r'(?P<name>[a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(',
+                ["indent", "vis", "async", "name"], 2
+            ) \
+            .add_token(r'(?P<args>[^)]*)\)', ["args"], 1) \
+            .add_token(r'(?:\s*:\s*[^{;\n]+?)?', ["return"], 1) \
+            .add_token(r'\s*\{', ["head_end"], 1)
+
+        super().__init__(entity_type, owner, outer_regex, r"\bclass\b", inner_regex, default_visibility="public")
 
 
 class DepsParserJs(DepsParser):

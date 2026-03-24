@@ -229,8 +229,8 @@ class ContentBlock:
         start_line = self.find_line(def_end)  # открывающая реальная скобка должна находиться тут
         start_line, end_line = self.detect_bounds(start_line, self.clean_lines)
         if start_line == end_line:
-            self.parse_warn(f"Incomplete/abstract entity in file {self.file_name} at start={start}, line @{start_line} using header end")
-            return content[start:].splitlines()[0]
+            self.parse_warn(f"Incomplete/abstract entity in file {self.file_name} at start={def_start}, line @{start_line} using header end")
+            return content[def_start:].splitlines()[0]
         logging.info(f"Extracted entity from first_line={start_line} to last_line={end_line}")
         return "\n".join(self.clean_lines[start_line:end_line + 1])
 
