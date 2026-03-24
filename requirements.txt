@@ -1,0 +1,8 @@
+# Sandwich-pack runtime dependencies
+# Install with: pip install -r requirements.txt
+
+# MCP server
+mcp[cli]>=1.0.0
+
+# Filesystem watcher (for auto stale detection)
+watchdog>=4.0.0
