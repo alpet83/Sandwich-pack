@@ -167,10 +167,18 @@ class ContentBlock:
         line_num = start_line
         # поиск открывающей скобки, для варианта когда start_line указывает на начало многострочного определения функции/метода
         for i in range(8):
+            if line_num >= len(clean_lines):
+                break
             line = clean_lines[line_num]
             if line.count('{') > 0:
                 break
             line_num += 1
+
+        if line_num >= len(clean_lines):
+            self.parse_warn(
+                f"No opening brace found within 8 lines from {start_line} in {self.file_name}"
+            )
+            return start_line, start_line
 
         while line_num < len(clean_lines):
             line = clean_lines[line_num]
@@ -268,7 +276,7 @@ class ContentBlock:
                 pattern = rf"(?<=[\s.->]){re.escape(from_str)}(?=\s|\()"
             elif ent_type == "structure":
                 pattern = rf"(?<=[\s.->|<]){re.escape(from_str)}(?=\s|\(|<|>)"
-            elif ent_type in ("class", "interface"):
+            elif ent_type in ("class", "interface", "trait", "enum"):
                 pattern = rf"(?<=[\s|=\(]){re.escape(from_str)}(?=\s|\(|\.|,|;|\))*"  # варианты использования классов: конструкция, наследование, вызов статического метода, импорт в заголовке
             else:
                 pattern = rf"\b{re.escape(from_str)}\b"
@@ -311,7 +319,20 @@ class ContentBlock:
             if name_count[ent_name] > 1:
                 logging.debug(f"SKIP_ENTITY: non unique name {ent_name}")
                 continue
-            if ent_type in ("function", "local_function", "class", "interface", "structure", "method", "abstract method", "module", "component", "object"):
+            if ent_type in (
+                "function",
+                "local_function",
+                "class",
+                "interface",
+                "trait",
+                "enum",
+                "structure",
+                "method",
+                "abstract method",
+                "module",
+                "component",
+                "object",
+            ):
                 valid_entities[ent_name] = (self.file_id, ent_type, line_num)
                 logging.debug(f"Added local entity {ent_name} ({ent_type}, file_id={self.file_id}, line={line_num}) for compression")
             if "parent" in entity and entity["parent"]:
@@ -346,7 +367,10 @@ class ContentBlock:
             if line_num is not None and line_num in self.entity_map:
                 line = self.clean_lines[line_num]
                 # TODO: тут надо заменить проверку на простое соответствие линии определения сущности
-                if isinstance(line, str) and re.search(rf"\b(def|function|class|struct|impl|mod)\s+{re.escape(ent_name)}\b", line):
+                if isinstance(line, str) and re.search(
+                    rf"\b(def|function|class|interface|trait|enum|struct|impl|mod)\s+{re.escape(ent_name)}\b",
+                    line,
+                ):
                     is_definition = True
             if file_id is None:
                 for fid in {f[0] for f in entity_rev_map.keys()}:
