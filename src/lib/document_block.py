@@ -26,14 +26,17 @@ SandwichPack.register_block_class(DocumentBlock)
 
 
 class TextDataBlock(ContentBlock):
-    supported_types = ['.env', '.json', '.xml']
+    supported_types = ['.env', '.json', '.xml', '.yml', '.yaml', '.txt']
 
     def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
         super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
         self.tag = {
             '.env': 'env',
             '.json': 'json',
-            '.xml': 'xml'
+            '.xml': 'xml',
+            '.yml': 'yaml',
+            '.yaml': 'yaml',
+            '.txt': 'text_plain',
         }.get(content_type, 'text_data')
         logging.debug(f"Initialized TextDataBlock with tag={self.tag}, content_type={content_type}, file_name={file_name}")
 

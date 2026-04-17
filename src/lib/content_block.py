@@ -37,6 +37,8 @@ class ContentBlock:
         self.user_id = kwargs.get('user_id')
         self.relevance = kwargs.get('relevance', 0)
         self.file_id = kwargs.get('file_id')
+        # Unix time from БД (пост/файл) — для инкрементальных правок в контексте
+        self.revision_ts = kwargs.get('revision_ts')
         self.tokens = estimate_tokens(content_text)
         self.clean_lines = ["Line №0"] + self.content_text.splitlines()
         self.strip_log = []
@@ -409,11 +411,71 @@ class ContentBlock:
             value = getattr(self, field, None)
             if value is not None:
                 attrs.append(f'{attr}="{value}"')
+        if self.content_type == ':post' and self.timestamp is not None:
+            attrs.append(f'mod_time="{self.timestamp}"')
+        if self.content_type == ':post' and self.revision_ts is not None:
+            try:
+                attrs.append(f'revision_ts="{int(self.revision_ts)}"')
+            except (TypeError, ValueError):
+                pass
         attr_str = " ".join(attrs)
         return f"<{self.tag} {attr_str}>\n{self.content_text}\n</{self.tag}>"
 
     def parse_content(self, clean_lines=None, depth=0):
         return {"entities": [], "dependencies": self.dependencies}
+
+
+class ContextPatchBlock(ContentBlock):
+    """Дополнение контекста: правка поста/файла без повторного разбора сущностей (как :post)."""
+
+    supported_types = [':context_patch']
+
+    def __init__(
+        self,
+        content_text: str,
+        *,
+        patch_kind: str,
+        post_id=None,
+        file_id=None,
+        user_id=None,
+        timestamp=None,
+        revision_ts=None,
+    ):
+        super().__init__(content_text, ':context_patch', file_name=None, timestamp=timestamp)
+        self.tag = "context_patch"
+        self.patch_kind = patch_kind
+        self.post_id = post_id
+        self.file_id = None  # не трогаем busy_ids в SandwichPack; id в XML attrs
+        self.ref_file_id = int(file_id) if file_id is not None else None
+        self.user_id = user_id
+        self.revision_ts = revision_ts
+
+    def to_sandwich_block(self):
+        attrs = [
+            f'kind="{self.patch_kind}"',
+            'role="context_revision"',
+        ]
+        if self.post_id is not None:
+            attrs.append(f'post_id="{int(self.post_id)}"')
+        if self.ref_file_id is not None:
+            attrs.append(f'file_id="{int(self.ref_file_id)}"')
+        if self.user_id is not None:
+            attrs.append(f'user_id="{int(self.user_id)}"')
+        if self.timestamp:
+            attrs.append(f'mod_time="{self.timestamp}"')
+        if self.revision_ts is not None:
+            try:
+                attrs.append(f'revision_ts="{int(self.revision_ts)}"')
+            except (TypeError, ValueError):
+                pass
+        attr_str = " ".join(attrs)
+        return f"<{self.tag} {attr_str}>\n{self.content_text}\n</{self.tag}>"
+
+    def parse_content(self, clean_lines=None, depth=0):
+        return {"entities": [], "dependencies": {"modules": [], "imports": {}}}
+
+    def compress(self, entity_rev_map, file_map: dict):
+        return
 
 
 class SpanBlock(ContentBlock):
