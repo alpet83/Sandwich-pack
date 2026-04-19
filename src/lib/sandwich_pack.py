@@ -11,7 +11,7 @@ import json
 import math
 import traceback
 from pathlib import Path
-from .content_block import ContentBlock, estimate_tokens
+from .content_block import ContentBlock, ContextPatchBlock, estimate_tokens
 from .deps_builder import organize_modules
 
 
@@ -61,6 +61,9 @@ class SandwichPack:
                 logging.error(f"Failed to load module {module_name}: {str(e)}")
                 stack = traceback.format_exception(type(e), e, e.__traceback__)
                 logging.info(f"TRACEBACK: " + ''.join(stack))
+        _names = {c.__name__ for c in cls._block_classes}
+        if "ContextPatchBlock" not in _names:
+            cls.register_block_class(ContextPatchBlock)
         return cls._block_classes
 
     @classmethod
@@ -69,7 +72,6 @@ class SandwichPack:
             if content_type in block_class.supported_types:
                 logging.debug(f"Supported content_type={content_type} by {block_class.__name__}")
                 return True
-        logging.debug(f"Content_type={content_type} falls back to ContentBlock")
         return content_type in ContentBlock.supported_types
 
     @classmethod
@@ -79,7 +81,6 @@ class SandwichPack:
             if content_type in block_class.supported_types:
                 logging.debug(f"Creating block with {block_class.__name__} for content_type={content_type}")
                 return block_class(content_text, content_type, file_name, timestamp, **kwargs)
-        logging.debug(f"Creating default ContentBlock for content_type={content_type}")
         return ContentBlock(content_text, content_type, file_name, timestamp, **kwargs)
 
     def generate_unique_file_id(self) -> int:
@@ -117,11 +118,11 @@ class SandwichPack:
             logging.debug(f"Pack started: input {len(blocks)} included {file_blocks} files blocks")
             # first sandwich part is chat messages
             for block in blocks:
-                if block.content_type == ":post":
+                if block.content_type in (":post", ":context_patch"):
                     parsed_blocks.append((block, {}))
 
             for block in blocks:
-                if block.content_type == ":post":
+                if block.content_type in (":post", ":context_patch"):
                     continue
                 if block.file_name:
                     # file_id - четко указывает на ссылку файла из БД, он привязан к блоку намертво
@@ -177,7 +178,7 @@ class SandwichPack:
             sandwiches = []
             global_index = {
                 "packer_version": "0.6",
-                "context_date": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"),
+                "context_date": datetime.datetime.utcnow().strftime("%Y-%m-%d"),
                 "templates": {
                     "filelist": "file_id,file_name,md5,tokens,timestamp",
                     "users": "user_id,username,role",
@@ -237,6 +238,8 @@ class SandwichPack:
                 }
                 if block.content_type == ":post":
                     block_data["post_" + str(block.post_id)] = current_line
+                elif block.content_type == ":context_patch":
+                    block_data["context_patch"] = current_line
                 elif block.file_id is not None:
                     block_data["file_" + str(block.file_id)] = current_line
                 if parsed.get('modules'):

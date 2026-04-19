@@ -37,6 +37,8 @@ class ContentBlock:
         self.user_id = kwargs.get('user_id')
         self.relevance = kwargs.get('relevance', 0)
         self.file_id = kwargs.get('file_id')
+        # Unix time from БД (пост/файл) — для инкрементальных правок в контексте
+        self.revision_ts = kwargs.get('revision_ts')
         self.tokens = estimate_tokens(content_text)
         self.clean_lines = ["Line №0"] + self.content_text.splitlines()
         self.strip_log = []
@@ -167,10 +169,18 @@ class ContentBlock:
         line_num = start_line
         # поиск открывающей скобки, для варианта когда start_line указывает на начало многострочного определения функции/метода
         for i in range(8):
+            if line_num >= len(clean_lines):
+                break
             line = clean_lines[line_num]
             if line.count('{') > 0:
                 break
             line_num += 1
+
+        if line_num >= len(clean_lines):
+            self.parse_warn(
+                f"No opening brace found within 8 lines from {start_line} in {self.file_name}"
+            )
+            return start_line, start_line
 
         while line_num < len(clean_lines):
             line = clean_lines[line_num]
@@ -268,7 +278,7 @@ class ContentBlock:
                 pattern = rf"(?<=[\s.->]){re.escape(from_str)}(?=\s|\()"
             elif ent_type == "structure":
                 pattern = rf"(?<=[\s.->|<]){re.escape(from_str)}(?=\s|\(|<|>)"
-            elif ent_type in ("class", "interface"):
+            elif ent_type in ("class", "interface", "trait", "enum"):
                 pattern = rf"(?<=[\s|=\(]){re.escape(from_str)}(?=\s|\(|\.|,|;|\))*"  # варианты использования классов: конструкция, наследование, вызов статического метода, импорт в заголовке
             else:
                 pattern = rf"\b{re.escape(from_str)}\b"
@@ -311,7 +321,20 @@ class ContentBlock:
             if name_count[ent_name] > 1:
                 logging.debug(f"SKIP_ENTITY: non unique name {ent_name}")
                 continue
-            if ent_type in ("function", "local_function", "class", "interface", "structure", "method", "abstract method", "module", "component", "object"):
+            if ent_type in (
+                "function",
+                "local_function",
+                "class",
+                "interface",
+                "trait",
+                "enum",
+                "structure",
+                "method",
+                "abstract method",
+                "module",
+                "component",
+                "object",
+            ):
                 valid_entities[ent_name] = (self.file_id, ent_type, line_num)
                 logging.debug(f"Added local entity {ent_name} ({ent_type}, file_id={self.file_id}, line={line_num}) for compression")
             if "parent" in entity and entity["parent"]:
@@ -346,7 +369,10 @@ class ContentBlock:
             if line_num is not None and line_num in self.entity_map:
                 line = self.clean_lines[line_num]
                 # TODO: тут надо заменить проверку на простое соответствие линии определения сущности
-                if isinstance(line, str) and re.search(rf"\b(def|function|class|struct|impl|mod)\s+{re.escape(ent_name)}\b", line):
+                if isinstance(line, str) and re.search(
+                    rf"\b(def|function|class|interface|trait|enum|struct|impl|mod)\s+{re.escape(ent_name)}\b",
+                    line,
+                ):
                     is_definition = True
             if file_id is None:
                 for fid in {f[0] for f in entity_rev_map.keys()}:
@@ -385,11 +411,71 @@ class ContentBlock:
             value = getattr(self, field, None)
             if value is not None:
                 attrs.append(f'{attr}="{value}"')
+        if self.content_type == ':post' and self.timestamp is not None:
+            attrs.append(f'mod_time="{self.timestamp}"')
+        if self.content_type == ':post' and self.revision_ts is not None:
+            try:
+                attrs.append(f'revision_ts="{int(self.revision_ts)}"')
+            except (TypeError, ValueError):
+                pass
         attr_str = " ".join(attrs)
         return f"<{self.tag} {attr_str}>\n{self.content_text}\n</{self.tag}>"
 
     def parse_content(self, clean_lines=None, depth=0):
         return {"entities": [], "dependencies": self.dependencies}
+
+
+class ContextPatchBlock(ContentBlock):
+    """Дополнение контекста: правка поста/файла без повторного разбора сущностей (как :post)."""
+
+    supported_types = [':context_patch']
+
+    def __init__(
+        self,
+        content_text: str,
+        *,
+        patch_kind: str,
+        post_id=None,
+        file_id=None,
+        user_id=None,
+        timestamp=None,
+        revision_ts=None,
+    ):
+        super().__init__(content_text, ':context_patch', file_name=None, timestamp=timestamp)
+        self.tag = "context_patch"
+        self.patch_kind = patch_kind
+        self.post_id = post_id
+        self.file_id = None  # не трогаем busy_ids в SandwichPack; id в XML attrs
+        self.ref_file_id = int(file_id) if file_id is not None else None
+        self.user_id = user_id
+        self.revision_ts = revision_ts
+
+    def to_sandwich_block(self):
+        attrs = [
+            f'kind="{self.patch_kind}"',
+            'role="context_revision"',
+        ]
+        if self.post_id is not None:
+            attrs.append(f'post_id="{int(self.post_id)}"')
+        if self.ref_file_id is not None:
+            attrs.append(f'file_id="{int(self.ref_file_id)}"')
+        if self.user_id is not None:
+            attrs.append(f'user_id="{int(self.user_id)}"')
+        if self.timestamp:
+            attrs.append(f'mod_time="{self.timestamp}"')
+        if self.revision_ts is not None:
+            try:
+                attrs.append(f'revision_ts="{int(self.revision_ts)}"')
+            except (TypeError, ValueError):
+                pass
+        attr_str = " ".join(attrs)
+        return f"<{self.tag} {attr_str}>\n{self.content_text}\n</{self.tag}>"
+
+    def parse_content(self, clean_lines=None, depth=0):
+        return {"entities": [], "dependencies": {"modules": [], "imports": {}}}
+
+    def compress(self, entity_rev_map, file_map: dict):
+        return
 
 
 class SpanBlock(ContentBlock):

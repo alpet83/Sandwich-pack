@@ -13,6 +13,12 @@ from lib.deps_builder import DepsParser
 from lib.iter_regex import IterativeRegex
 
 BASE_REGEX_PATTERN = r"^(?P<indent>[ \t]*)(?P<vis>public\s+|protected\s+|private\s+)?"
+PHP_CLASS_HEAD = (
+    BASE_REGEX_PATTERN
+    + r"(?:(?:abstract|final|readonly)\s+)*"
+    + r"class\s+(?P<name>\w+)"
+    + r"(?P<parent>\s+extends\s+[\w\\]+)?"
+)
 ARGS_REGEX_PATTERN = r"(?P<args>[\^)]*)"
 
 
@@ -32,12 +38,51 @@ class ClassParser(EntityParser):
     def __init__(self, entity_type, owner):
         outer_regex = IterativeRegex()
         outer_regex.add_token(
-            BASE_REGEX_PATTERN + r"class\s+(?P<name>\w+)(?P<parent>\s+extends\s+\w+)?",
+            PHP_CLASS_HEAD,
             ["indent", "vis", "name"], 2
         ).add_token(
             r"\s*:", ["head_end"], 1
         )
         super().__init__(entity_type, owner, outer_regex, r"\bclass\b", inner_regex=callable_regex, default_visibility="public")
+
+
+class InterfaceParser(EntityParser):
+    """Parser for PHP interfaces and their methods."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(
+            BASE_REGEX_PATTERN + r"interface\s+(?P<name>\w+)",
+            ["indent", "vis", "name"], 2
+        ).add_token(
+            r"\s*:", ["head_end"], 1
+        )
+        super().__init__(entity_type, owner, outer_regex, r"\binterface\b", inner_regex=callable_regex, default_visibility="public")
+
+
+class TraitParser(EntityParser):
+    """Parser for PHP traits and their methods."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(
+            BASE_REGEX_PATTERN + r"trait\s+(?P<name>\w+)",
+            ["indent", "vis", "name"], 2
+        ).add_token(
+            r"\s*:", ["head_end"], 1
+        )
+        super().__init__(entity_type, owner, outer_regex, r"\btrait\b", inner_regex=callable_regex, default_visibility="public")
+
+
+class EnumParser(EntityParser):
+    """Parser for PHP 8.1+ enums (no method extraction; body via brace matching)."""
+    def __init__(self, entity_type, owner):
+        outer_regex = IterativeRegex()
+        outer_regex.add_token(
+            BASE_REGEX_PATTERN
+            + r"enum\s+(?P<name>\w+)"
+            + r"(?:\s*:\s*(?:string|int)\s*)?",
+            ["indent", "vis", "name"], 2
+        )
+        super().__init__(entity_type, owner, outer_regex, r"\benum\b", inner_regex=None, default_visibility="public")
 
 
 class FunctionParser(EntityParser):
@@ -90,8 +135,6 @@ class ContentCodePHP(ContentBlock):
 
     def strip_strings(self):
         """Strips string literals from PHP content, preserving module names in require/include."""
-        if len(self.clean_lines) <= 1:
-            raise Exception("clean_lines not filled")
         content = self.content_text
 
         #  Very matter quotes duplication for import lines
@@ -101,7 +144,9 @@ class ContentCodePHP(ContentBlock):
             content,
             flags=re.MULTILINE
         )
-        self.clean_lines = [''] + protected_content.splitlines()
+        self.clean_lines = [""] + protected_content.splitlines()
+        if len(self.clean_lines) <= 1:
+            self.clean_lines.append("")
         super().strip_strings()
 
 
@@ -125,9 +170,12 @@ class ContentCodePHP(ContentBlock):
         self.strip_comments()
 
         parsers = [
+            InterfaceParser("interface", self),
+            TraitParser("trait", self),
+            EnumParser("enum", self),
             ClassParser("class", self),
             FunctionParser("function", self),
-            DepsParserPHP(self)
+            DepsParserPHP(self),
         ]
         self.parsers = parsers
 
@@ -142,7 +190,7 @@ class ContentCodePHP(ContentBlock):
             except Exception as e:
                 logging.error(f"Error in {parser.__class__.__name__} parser for {self.file_name}: {str(e)}")
                 traceback.print_exc()
-                break
+                continue
 
         self.clean_lines = original_clean_lines
         entities = self.sorted_entities()

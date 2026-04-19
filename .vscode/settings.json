@@ -1,5 +1,9 @@
 {
   "python.defaultInterpreterPath": "C:\\Apps\\Python3\\python.exe",
   "python.analysis.extraPaths": ["src"],
-  "python.analysis.autoImportCompletions": true
+  "python.analysis.autoImportCompletions": true,
+  "cursorpyright.analysis.autoImportCompletions": true,
+  "cursorpyright.analysis.extraPaths": [
+    "src"
+  ]
 }
