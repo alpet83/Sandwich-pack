@@ -177,7 +177,7 @@ class SandwichPack:
             current_sw_index = 1
             sandwiches = []
             global_index = {
-                "packer_version": "0.6",
+                "packer_version": "0.7",
                 "context_date": datetime.datetime.utcnow().strftime("%Y-%m-%d"),
                 "templates": {
                     "filelist": "file_id,file_name,md5,tokens,timestamp",
