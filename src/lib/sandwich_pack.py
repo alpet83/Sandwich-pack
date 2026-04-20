@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 from .content_block import ContentBlock, ContextPatchBlock, estimate_tokens
 from .deps_builder import organize_modules
+from .file_type_detector import DOCUMENT_EXTENSIONS, TEXT_FILE_EXTENSIONS
 
 
 def compute_md5(content: str) -> str:
@@ -21,6 +22,11 @@ def compute_md5(content: str) -> str:
 
 class SandwichPack:
     _block_classes = []
+    _NON_CODE_CONTENT_TYPES = {
+        ":post",
+        ":context_patch",
+        ":document",
+    } | set(DOCUMENT_EXTENSIONS) | set(TEXT_FILE_EXTENSIONS)
 
     def __init__(self, project_name: str, max_size: int = 42_000, token_limit=131_000, system_prompt=None, compression=False):
         self.project_name = project_name
@@ -95,6 +101,81 @@ class SandwichPack:
         key = (file_id, e_type, e_name) if file_id is not None else (None, e_type, e_name)
         return self.entity_rev_map.get(key, -1)
 
+    @classmethod
+    def _is_code_block(cls, block: ContentBlock) -> bool:
+        ctype = str(getattr(block, "content_type", "") or "").strip().lower()
+        return ctype not in cls._NON_CODE_CONTENT_TYPES
+
+    @staticmethod
+    def _index_redundancy_warning(file_list: list[str], entities_list: list[str]) -> dict | None:
+        """
+        Warn when index payload is likely dominated by non-code files.
+        Rule: files > 1000 and files-with-entities / files < 10%.
+        """
+        total_files = len(file_list)
+        if total_files <= 1000:
+            return None
+
+        file_path_by_id: dict[int, str] = {}
+        for row in file_list:
+            parts = row.split(",", 4)
+            if len(parts) < 5:
+                continue
+            try:
+                fid = int(parts[0].strip())
+            except ValueError:
+                continue
+            file_path_by_id[fid] = parts[1].strip()
+
+        code_file_ids: set[int] = set()
+        for row in entities_list:
+            parts = row.split(",")
+            if len(parts) < 7:
+                continue
+            try:
+                code_file_ids.add(int(parts[4].strip()))
+            except ValueError:
+                continue
+
+        code_files = len(code_file_ids)
+        if code_files <= 0:
+            ratio = 0.0
+        else:
+            ratio = code_files / float(total_files)
+        if ratio >= 0.10:
+            return None
+
+        non_code_dir_counts: dict[str, int] = {}
+        for fid, rel in file_path_by_id.items():
+            if fid in code_file_ids:
+                continue
+            top = rel.split("/", 1)[0] if rel else ""
+            if not top:
+                top = "."
+            non_code_dir_counts[top] = non_code_dir_counts.get(top, 0) + 1
+
+        top_noise = [
+            {"path": k, "count": v}
+            for k, v in sorted(non_code_dir_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        ]
+        return {
+            "code": "high_index_redundancy",
+            "severity": "warning",
+            "message": (
+                "Index includes many non-code files: code-bearing modules are below 10% of indexed files."
+            ),
+            "metrics": {
+                "total_files": total_files,
+                "code_files": code_files,
+                "code_ratio": round(ratio, 4),
+            },
+            "top_non_code_paths": top_noise,
+            "recommendation": (
+                "Enable project path filters (for example target/.git/.cursor/node_modules/dist/build) "
+                "via .scan_ignore.txt and/or SUBPATH_EXCLUDE_FILTER."
+            ),
+        }
+
     def pack(self, blocks, users=None) -> dict:
         """Packs content blocks into sandwiches with an index including entity boundaries."""
         try:
@@ -108,6 +189,7 @@ class SandwichPack:
             module_map = {}
             module_list = []
             parsed_blocks = []
+            code_base_file_ids: set[int] = set()
             file_blocks = 0
 
             for block in blocks:
@@ -133,6 +215,8 @@ class SandwichPack:
                         f"{file_id},{block.file_name},{compute_md5(block.to_sandwich_block())}," +
                         f"{block.tokens},{block.timestamp}"
                     )
+                    if self._is_code_block(block):
+                        code_base_file_ids.add(int(file_id))
                 block.strip_strings()
                 block.strip_comments()
                 parsed = block.parse_content()
@@ -188,8 +272,12 @@ class SandwichPack:
                 "datasheet": self.datasheet,
                 "entities": entities_list,
                 "files": file_list,
-                "users": users or []
+                "users": users or [],
+                "code_base_files": sorted(code_base_file_ids),
             }
+            warn = self._index_redundancy_warning(file_list, entities_list)
+            if warn is not None:
+                global_index["warnings"] = [warn]
 
             deep_index = {
                 "templates": {

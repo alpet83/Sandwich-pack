@@ -2,6 +2,7 @@
 import logging
 from typing import Dict
 from lib.content_block import ContentBlock
+from lib.file_type_detector import DOCUMENT_EXTENSIONS, TEXT_FILE_EXTENSIONS
 from lib.sandwich_pack import SandwichPack
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s #%(levelname)s: %(message)s')
@@ -9,7 +10,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s #%(levelname)s: %(m
 
 # Под документами подразумеваются текстовые файлы, для которых не требуется парсинг кода
 class DocumentBlock(ContentBlock):
-    supported_types = ['.md', '.conf', '.toml', '.rulz']
+    supported_types = list(DOCUMENT_EXTENSIONS)
 
     def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
         super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
@@ -26,7 +27,7 @@ SandwichPack.register_block_class(DocumentBlock)
 
 
 class TextDataBlock(ContentBlock):
-    supported_types = ['.env', '.json', '.xml', '.yml', '.yaml', '.txt']
+    supported_types = list(TEXT_FILE_EXTENSIONS)
 
     def __init__(self, content_text: str, content_type: str, file_name: str, timestamp: str, **kwargs):
         super().__init__(content_text, content_type, file_name, timestamp, **kwargs)
